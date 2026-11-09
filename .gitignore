@@ -1,0 +1,50 @@
+# Gradle
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+!gradlew
+!gradlew.bat
+
+# Android Studio
+.idea/
+*.iml
+local.properties
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Keystore (NEVER commit)
+*.jks
+*.keystore
+keystore.properties
+signing.properties
+
+# Build outputs
+app/build/
+app/release/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Secrets & Credentials
+.env
+*.env
+credentials.json
+tokens.json
+secrets/
+
+# 9Router / AI Studio credentials
+9router_key*
+ai_studio_key*
+api_keys/
+
+# Browser sessions
+*.cookies
+*.session
+browser_data/
+
+# Temp files
+*.tmp
+*.bak
+*.swp
