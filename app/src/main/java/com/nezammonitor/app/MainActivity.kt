@@ -71,7 +71,10 @@ class MainActivity : ComponentActivity() {
                 NezamMonitorTheme(
                     appTheme = prefs.appTheme,
                     darkTheme = darkTheme,
-                    fontScale = prefs.fontScale
+                    fontScale = prefs.fontScale,
+                    cardStyle = prefs.cardStyle,
+                    cornerStyle = prefs.cornerStyle,
+                    visualEffects = prefs.visualEffects
                 ) {
                     NezamMonitorApp(viewModel = viewModel)
                 }
