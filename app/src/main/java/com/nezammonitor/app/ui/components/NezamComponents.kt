@@ -50,8 +50,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.nezammonitor.app.ui.theme.AppTheme
+import com.nezammonitor.app.ui.theme.CardStyle
 import com.nezammonitor.app.ui.theme.appColorScheme
 import com.nezammonitor.app.ui.theme.darker
+import com.nezammonitor.app.ui.theme.nezamCardStyle
 import com.nezammonitor.app.ui.theme.nezamExtras
 import com.nezammonitor.app.ui.theme.nezamSemantic
 
@@ -70,6 +72,10 @@ import com.nezammonitor.app.ui.theme.nezamSemantic
  * Pass [containerColor] only when the screen needs a tonal state
  * (selection, stats, status); otherwise the Material default is used.
  */
+/**
+ * The standard card of the app: adapts to [CardStyle] (Glassmorphic, Elevated, or Flat)
+ * and [CornerStyle] automatically.
+ */
 @Composable
 fun NezamCard(
     modifier: Modifier = Modifier,
@@ -77,16 +83,36 @@ fun NezamCard(
     containerColor: Color? = null,
     content: @Composable () -> Unit
 ) {
+    val cardStyle = MaterialTheme.nezamCardStyle
+    val scheme = MaterialTheme.colorScheme
+    val extras = MaterialTheme.nezamExtras
+
+    val resolvedColor = containerColor ?: when (cardStyle) {
+        CardStyle.GLASS -> scheme.surface.copy(alpha = 0.82f)
+        CardStyle.ELEVATED -> scheme.surface
+        CardStyle.FLAT -> scheme.surfaceVariant.copy(alpha = 0.45f)
+    }
+
+    val resolvedBorder = when (cardStyle) {
+        CardStyle.GLASS -> BorderStroke(1.dp, extras.cardBorder)
+        CardStyle.ELEVATED -> null
+        CardStyle.FLAT -> BorderStroke(1.dp, scheme.outlineVariant.copy(alpha = 0.25f))
+    }
+
+    val resolvedElevation = when (cardStyle) {
+        CardStyle.GLASS -> CardDefaults.cardElevation(defaultElevation = 0.dp)
+        CardStyle.ELEVATED -> CardDefaults.cardElevation(defaultElevation = 3.dp, pressedElevation = 6.dp)
+        CardStyle.FLAT -> CardDefaults.cardElevation(defaultElevation = 0.dp)
+    }
+
     val cardModifier = if (onClick != null) modifier.clickable { onClick() } else modifier
+
     Card(
         modifier = cardModifier,
-        colors = if (containerColor != null) {
-            CardDefaults.cardColors(containerColor = containerColor)
-        } else {
-            CardDefaults.cardColors()
-        },
-        border = BorderStroke(1.dp, MaterialTheme.nezamExtras.cardBorder),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+        shape = MaterialTheme.shapes.medium,
+        colors = CardDefaults.cardColors(containerColor = resolvedColor),
+        border = resolvedBorder,
+        elevation = resolvedElevation
     ) {
         content()
     }
@@ -436,26 +462,54 @@ fun MenuLinkCard(
     emoji: String,
     title: String,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    subtitle: String? = null
 ) {
     NezamCard(modifier = modifier, onClick = onClick) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp),
+                .padding(horizontal = 16.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
                 modifier = Modifier
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)),
+                    .size(44.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(
+                        Brush.linearGradient(
+                            listOf(
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
+                                MaterialTheme.colorScheme.secondary.copy(alpha = 0.08f)
+                            )
+                        )
+                    )
+                    .border(
+                        BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)),
+                        RoundedCornerShape(12.dp)
+                    ),
                 contentAlignment = Alignment.Center
             ) {
-                Text(emoji, fontSize = 20.sp)
+                Text(emoji, fontSize = 22.sp)
             }
-            Spacer(modifier = Modifier.width(12.dp))
-            Text(title, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.width(14.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(title, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                if (subtitle != null) {
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        subtitle,
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            Text(
+                "‹",
+                fontSize = 22.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)
+            )
         }
     }
 }
@@ -472,20 +526,24 @@ fun ThemeOptionRow(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val scheme = remember(theme) { appColorScheme(theme, darkTheme = false) }
+    val lightScheme = remember(theme) { appColorScheme(theme, darkTheme = false) }
+    val darkScheme = remember(theme) { appColorScheme(theme, darkTheme = true) }
+    val primaryColor = MaterialTheme.colorScheme.primary
+
     Card(
         modifier = modifier.clickable { onClick() },
+        shape = MaterialTheme.shapes.medium,
         colors = CardDefaults.cardColors(
             containerColor = if (selected) {
-                MaterialTheme.colorScheme.primaryContainer
+                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.85f)
             } else {
-                MaterialTheme.colorScheme.surface
+                MaterialTheme.colorScheme.surface.copy(alpha = 0.7f)
             }
         ),
         border = if (selected) {
-            BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary)
+            BorderStroke(1.5.dp, primaryColor)
         } else {
-            BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+            BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
         },
         elevation = CardDefaults.cardElevation(
             defaultElevation = if (selected) 2.dp else 0.dp
@@ -494,23 +552,43 @@ fun ThemeOptionRow(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(12.dp),
+                .padding(14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Live palette preview: primary / secondary / tertiary dots.
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                listOf(scheme.primary, scheme.secondary, scheme.tertiary).forEach { c ->
+            // Live 4-dot preview (Light Primary, Secondary, Tertiary, Dark Primary)
+            Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                listOf(lightScheme.primary, lightScheme.secondary, lightScheme.tertiary, darkScheme.primary).forEach { c ->
                     Box(
                         modifier = Modifier
-                            .size(22.dp)
+                            .size(20.dp)
                             .clip(CircleShape)
                             .background(c)
+                            .border(BorderStroke(0.5.dp, Color.White.copy(alpha = 0.4f)), CircleShape)
                     )
                 }
             }
-            Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.width(14.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text(theme.persianName, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(theme.persianName, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    if (selected) {
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(MaterialTheme.colorScheme.primary)
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                "فعال",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimary
+                            )
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(2.dp))
                 Text(
                     theme.description,
                     fontSize = 11.sp,
