@@ -1,8 +1,11 @@
 package com.nezammonitor.app.viewmodel
 
 import android.app.Application
+import android.content.Context
+import android.content.SharedPreferences
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.nezammonitor.app.api.toPersianChars
 import com.nezammonitor.app.data.*
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -61,16 +64,73 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _isImporting = MutableStateFlow(false)
     val isImporting: StateFlow<Boolean> = _isImporting.asStateFlow()
 
+    // Logged-in user profile, from the API (not hardcoded).
+    // The name comes from /panel/api/user (name + family), fetched at login
+    // and saved to SharedPreferences by UpdateScreen. The API returns no
+    // role for the user, so the role is derived from the synced engineer
+    // record (showNazer), which does carry role + discipline — matched by
+    // name. Blank name/role means "never logged in": the UI falls back to
+    // a generic greeting and hides the role line.
+    private val settingsPrefs =
+        application.getSharedPreferences("nezam_settings", Context.MODE_PRIVATE)
+
+    // The stored name may have been saved by 3.6.1 in Arabic script
+    // (ي / ك) — normalize it here too, so old saved values display
+    // in Persian as well.
+    private val _userName =
+        MutableStateFlow(toPersianChars(settingsPrefs.getString("api_user_name", "") ?: ""))
+    val userName: StateFlow<String> = _userName.asStateFlow()
+
+    private val _userRole = MutableStateFlow("")
+    val userRole: StateFlow<String> = _userRole.asStateFlow()
+
+    private val prefsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (key == "api_user_name") {
+            _userName.value = toPersianChars(settingsPrefs.getString("api_user_name", "") ?: "")
+            refreshUserRole()
+        }
+    }
+
     init {
+        settingsPrefs.registerOnSharedPreferenceChangeListener(prefsListener)
         loadAllData()
     }
+
+    override fun onCleared() {
+        settingsPrefs.unregisterOnSharedPreferenceChangeListener(prefsListener)
+        super.onCleared()
+    }
+
+    private fun refreshUserRole() {
+        _userRole.value = deriveUserRole(_engineers.value, _userName.value)
+    }
+
+    private fun deriveUserRole(engineers: List<EngineerEntity>, userName: String): String {
+        val target = normalizeName(userName)
+        if (target.isEmpty()) return ""
+        val match = engineers.firstOrNull { eng ->
+            val n = normalizeName(eng.name)
+            n.isNotEmpty() && (n == target ||
+                (target.length >= 5 && (n.contains(target) || target.contains(n))))
+        } ?: return ""
+        return listOf(match.role, match.discipline)
+            .map { it.trim() }.filter { it.isNotEmpty() }.joinToString(" ")
+    }
+
+    private fun normalizeName(s: String): String = s.trim()
+        .replace('ي', 'ی').replace('ك', 'ک')
+        .replace("\u200C", "")
+        .replace(Regex("\\s+"), " ")
 
     private fun loadAllData() {
         viewModelScope.launch {
             dao.getAllCases().distinctUntilChanged().collect { _cases.value = it }
         }
         viewModelScope.launch {
-            dao.getAllEngineers().distinctUntilChanged().collect { _engineers.value = it }
+            dao.getAllEngineers().distinctUntilChanged().collect {
+                _engineers.value = it
+                refreshUserRole()
+            }
         }
         viewModelScope.launch {
             dao.getAllFees().distinctUntilChanged().collect { _fees.value = it }
