@@ -2,6 +2,9 @@ package com.nezammonitor.app.ui.screens.update
 
 import android.content.Context
 import android.os.Environment
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -15,6 +18,14 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -23,6 +34,7 @@ import androidx.compose.ui.unit.sp
 import com.nezammonitor.app.api.NezamApi
 import com.nezammonitor.app.ui.components.NezamCard
 import com.nezammonitor.app.ui.theme.nezamSemantic
+import com.nezammonitor.app.ui.toPersianDigits
 import com.nezammonitor.app.data.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -177,6 +189,16 @@ fun UpdateScreen(
                                 statusText = "خطا: ${loginResult.exceptionOrNull()?.message}"
                                 isUpdating = false
                                 return@launch
+                            }
+
+                            // Save the logged-in user's name from the API
+                            // (/panel/api/user, name + family) so the home
+                            // screen and drawer show the real user instead
+                            // of a hardcoded name. MainViewModel picks this
+                            // up via its SharedPreferences listener.
+                            if (api.userName.isNotBlank()) {
+                                context.getSharedPreferences("nezam_settings", Context.MODE_PRIVATE)
+                                    .edit().putString("api_user_name", api.userName).apply()
                             }
 
                             statusText = "دریافت لیست پرونده‌ها..."
@@ -429,9 +451,12 @@ fun UpdateScreen(
                 }
             }
 
-            // Progress bar
-            if (isUpdating) {
-                LinearProgressIndicator(
+            // Building under construction — it rises with the update
+            // progress; when the update finishes, the completed building
+            // shows a green check. It stays visible after completion
+            // (progress == 1f) and hides on error.
+            if (isUpdating || progress >= 1f) {
+                UpdateBuildingProgress(
                     progress = progress,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -500,4 +525,156 @@ private fun safe(obj: JsonObject, key: String): String {
             obj.get(key).asString
         } else ""
     } catch (_: Exception) { "" }
+}
+
+/**
+ * A building under construction that rises with [progress] (0f..1f):
+ * the fill climbs from the ground up, each floor's windows light up as
+ * the fill passes them, and a tower crane works beside it. When the
+ * update finishes ([progress] == 1f) the crane is gone and a green check
+ * badge marks the completed building.
+ */
+@Composable
+private fun UpdateBuildingProgress(progress: Float, modifier: Modifier = Modifier) {
+    val isDone = progress >= 1f
+    // Smooth the fill between the discrete progress jumps of the sync.
+    val animatedProgress by animateFloatAsState(
+        targetValue = progress.coerceIn(0f, 1f),
+        animationSpec = tween(durationMillis = 300)
+    )
+    val primary = MaterialTheme.colorScheme.primary
+    val outline = MaterialTheme.colorScheme.onSurfaceVariant
+    val success = MaterialTheme.nezamSemantic.success
+    val litWindow = Color(0xFFFFB44A)
+
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Canvas(modifier = Modifier.size(220.dp, 180.dp)) {
+            val w = size.width
+            val h = size.height
+            val groundY = h - 12.dp.toPx()
+            val bLeft = w * 0.14f
+            val bRight = w * 0.58f
+            val bTop = h * 0.08f
+            val bBottom = groundY
+            val bWidth = bRight - bLeft
+            val bHeight = bBottom - bTop
+            val floors = 5
+            val floorH = bHeight / floors
+            val stroke = Stroke(width = 2.dp.toPx())
+
+            // Ground line
+            drawLine(
+                color = outline,
+                start = Offset(w * 0.04f, groundY),
+                end = Offset(w * 0.96f, groundY),
+                strokeWidth = 2.dp.toPx()
+            )
+
+            // Tower crane beside the building (only while building)
+            if (!isDone) {
+                val mastX = w * 0.74f
+                val jibY = h * 0.05f
+                // Mast
+                drawLine(outline, Offset(mastX, groundY), Offset(mastX, jibY), 2.dp.toPx())
+                // Jib over the building + counter-jib
+                drawLine(outline, Offset(w * 0.30f, jibY), Offset(w * 0.86f, jibY), 2.dp.toPx())
+                // Hook cable hanging down to the current construction level
+                val hookX = w * 0.48f
+                val hookY = bTop + (1f - animatedProgress) * bHeight
+                drawLine(outline, Offset(hookX, jibY), Offset(hookX, hookY), 1.dp.toPx())
+                drawRect(
+                    color = outline,
+                    topLeft = Offset(hookX - 3.dp.toPx(), hookY),
+                    size = Size(6.dp.toPx(), 6.dp.toPx())
+                )
+            }
+
+            // Building fill, rising from the ground (clipped to the body)
+            val fillH = animatedProgress * bHeight
+            if (fillH > 0f) {
+                clipRect(left = bLeft, top = bTop, right = bRight, bottom = bBottom) {
+                    drawRect(
+                        color = primary.copy(alpha = 0.85f),
+                        topLeft = Offset(bLeft, bBottom - fillH),
+                        size = Size(bWidth, fillH)
+                    )
+                }
+            }
+
+            // Building outline
+            drawRect(color = outline, topLeft = Offset(bLeft, bTop), size = Size(bWidth, bHeight), style = stroke)
+
+            // Floor separators
+            for (i in 1 until floors) {
+                val y = bTop + i * floorH
+                drawLine(
+                    color = outline.copy(alpha = 0.45f),
+                    start = Offset(bLeft, y),
+                    end = Offset(bRight, y),
+                    strokeWidth = 1.dp.toPx()
+                )
+            }
+
+            // Windows: 3 per floor, lit (amber) once the fill passed the floor.
+            // The ground floor's middle window is the entrance door instead.
+            val winW = bWidth * 0.16f
+            val winH = floorH * 0.42f
+            for (f in 0 until floors) {
+                val lit = animatedProgress >= (f + 1) / floors.toFloat()
+                val cy = bBottom - (f + 0.5f) * floorH
+                for (j in 0 until 3) {
+                    if (f == 0 && j == 1) continue
+                    val cx = bLeft + bWidth * ((j + 0.5f) / 3f)
+                    val topLeft = Offset(cx - winW / 2, cy - winH / 2)
+                    if (lit) {
+                        drawRect(color = litWindow, topLeft = topLeft, size = Size(winW, winH))
+                    } else {
+                        drawRect(
+                            color = outline.copy(alpha = 0.6f),
+                            topLeft = topLeft,
+                            size = Size(winW, winH),
+                            style = Stroke(width = 1.dp.toPx())
+                        )
+                    }
+                }
+            }
+
+            // Entrance door
+            val doorW = bWidth * 0.22f
+            val doorH = floorH * 0.62f
+            drawRect(
+                color = outline,
+                topLeft = Offset(bLeft + (bWidth - doorW) / 2, bBottom - doorH),
+                size = Size(doorW, doorH)
+            )
+
+            // Green check badge on the completed building
+            if (isDone) {
+                val badgeR = 15.dp.toPx()
+                val badgeC = Offset(bRight, bTop)
+                drawCircle(color = success, radius = badgeR, center = badgeC)
+                val check = Path().apply {
+                    moveTo(badgeC.x - 6.dp.toPx(), badgeC.y)
+                    lineTo(badgeC.x - 1.5f.dp.toPx(), badgeC.y + 5.dp.toPx())
+                    lineTo(badgeC.x + 7.dp.toPx(), badgeC.y - 5.dp.toPx())
+                }
+                drawPath(
+                    path = check,
+                    color = Color.White,
+                    style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = if (isDone) "تکمیل شد" else "${toPersianDigits(((progress * 100).toInt()).toString())}٪",
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Bold,
+            color = if (isDone) success else primary
+        )
+    }
 }
