@@ -93,32 +93,84 @@ object AppCorners {
 // changes with the theme.
 // ===========================================================================
 
-/** The five selectable visual identities. The stored value is [name]. */
+/** The nine selectable visual identities. The stored value is [name]. */
 enum class AppTheme(val persianName: String, val description: String) {
     MIDNIGHT(
         persianName = "نیمه‌شب",
-        description = "تیره و سرمه‌ای؛ مناسب کار طولانی و حرفه‌ای"
+        description = "تیره و سرمه‌ای با آبی الکتریک؛ مناسب کار طولانی و حرفه‌ای"
     ),
     OCEAN(
         persianName = "اقیانوسی",
-        description = "آبی و فیروزه‌ای؛ مدرن و آرام"
+        description = "آبی لاجوردی و فیروزه‌ای زلال؛ مدرن و آرام‌بخش"
     ),
     EMERALD(
         persianName = "زمردی",
-        description = "سبز زمردی و طلایی؛ لوکس و رسمی"
+        description = "سبز زمردی سلطنتی و رگه‌های طلایی؛ لوکس و رسمی"
     ),
     GRAPHITE(
         persianName = "گرافیتی",
-        description = "ذغالی و نقره‌ای؛ مینیمال و رسمی"
+        description = "ذغالی مات و نقره‌ای متالیک؛ مینیمال و شیک"
     ),
     LIGHT_PREMIUM(
         persianName = "روشن لوکس",
         description = "روشن، تمیز و ملایم؛ پیش‌فرض برنامه"
+    ),
+    CYBERPUNK(
+        persianName = "سایبرپانک نئون",
+        description = "بنفش نئونی و فیروزه‌ای شب‌تاب؛ آینده‌نگرانه و پرانرژی"
+    ),
+    ROYAL_AMETHYST(
+        persianName = "آمیتیست سلطنتی",
+        description = "ارغوانی مخملی و طلای گرم؛ اصیل و فاخر"
+    ),
+    SUNSET_AMBER(
+        persianName = "غروب کهربایی",
+        description = "نارنجی ملایم غروب و کهربای عسلی؛ گرم و گیرا"
+    ),
+    TITANIUM_FROST(
+        persianName = "فراست تیتانیوم",
+        description = "سربی مات و آبی یخی بلوری؛ مدرن اسکاندیناوی"
     );
 
     companion object {
         fun fromName(name: String?): AppTheme =
             values().firstOrNull { it.name == name } ?: LIGHT_PREMIUM
+    }
+}
+
+/** Card rendering style customization */
+enum class CardStyle(val persianName: String, val description: String) {
+    GLASS(persianName = "شیشه‌ای بلوری", description = "پس‌زمینه نیمه‌شفاف با خط مویی ظریف و عمق مدرن"),
+    ELEVATED(persianName = "برجسته کلاسیک", description = "کانتینر مات با سایه نرم و تفکیک بصری بالا"),
+    FLAT(persianName = "تخت مینیمال", description = "یکپارچه با پس‌زمینه و بدون خط مرزی اضافی");
+
+    companion object {
+        fun fromName(name: String?): CardStyle =
+            values().firstOrNull { it.name == name } ?: GLASS
+    }
+}
+
+/** Corner radius customization */
+enum class CornerStyle(val persianName: String, val radiusDp: Int) {
+    MODERN(persianName = "مدرن و نرم (۲۰dp)", radiusDp = 20),
+    CLASSIC(persianName = "کلاسیک استاندارد (۱۲dp)", radiusDp = 12),
+    SHARP(persianName = "شارپ و هندسی (۶dp)", radiusDp = 6);
+
+    companion object {
+        fun fromName(name: String?): CornerStyle =
+            values().firstOrNull { it.name == name } ?: MODERN
+    }
+}
+
+/** Visual effects and motion settings */
+enum class VisualEffects(val persianName: String, val description: String) {
+    DYNAMIC(persianName = "جلوه‌های زنده و فنری", description = "انیمیشن‌های نرم فنری، هاله نوری و ترنزیشن‌های پویا"),
+    BALANCED(persianName = "استاندارد بهینه", description = "انیمیشن‌های پایه بدون سربار اضافه"),
+    BATTERY_SAVER(persianName = "حفظ باتری و سرعت بالا", description = "غیرفعال‌سازی افکت‌های گرافیکی سنگین برای کاهش مصرف باتری");
+
+    companion object {
+        fun fromName(name: String?): VisualEffects =
+            values().firstOrNull { it.name == name } ?: DYNAMIC
     }
 }
 
@@ -302,6 +354,126 @@ private val palettes: Map<AppTheme, ThemePalettes> = mapOf(
             gradientTop = Color(0xFF0A1120), gradientMiddle = Color(0xFF0F172A),
             gradientBottom = Color(0xFF1E293B), cardBorder = Color(0x20FFFFFF)
         )
+    ),
+    AppTheme.CYBERPUNK to ThemePalettes(
+        light = Variant(
+            primary = Color(0xFF7C3AED), onPrimary = Color(0xFFFFFFFF),
+            primaryContainer = Color(0xFFF3E8FF), onPrimaryContainer = Color(0xFF581C87),
+            secondary = Color(0xFF06B6D4), onSecondary = Color(0xFFFFFFFF),
+            secondaryContainer = Color(0xFFCFFAFE), onSecondaryContainer = Color(0xFF164E63),
+            tertiary = Color(0xFFEC4899), onTertiary = Color(0xFFFFFFFF),
+            tertiaryContainer = Color(0xFFFCE7F3), onTertiaryContainer = Color(0xFF831843),
+            background = Color(0xFFFAF5FF), onBackground = Color(0xFF2E1065),
+            surface = Color(0xFFFFFFFF), onSurface = Color(0xFF2E1065),
+            surfaceVariant = Color(0xFFF3E8FF), onSurfaceVariant = Color(0xFF6B21A8),
+            outline = Color(0xFFD8B4FE), outlineVariant = Color(0xFFE9D5FF),
+            gradientTop = Color(0xFFFAF5FF), gradientMiddle = Color(0xFFF3E8FF),
+            gradientBottom = Color(0xFFE9D5FF), cardBorder = Color(0x1A581C87)
+        ),
+        dark = Variant(
+            primary = Color(0xFFA855F7), onPrimary = Color(0xFF18022B),
+            primaryContainer = Color(0xFF581C87), onPrimaryContainer = Color(0xFFF3E8FF),
+            secondary = Color(0xFF22D3EE), onSecondary = Color(0xFF042730),
+            secondaryContainer = Color(0xFF155E75), onSecondaryContainer = Color(0xFFCFFAFE),
+            tertiary = Color(0xFFF43F5E), onTertiary = Color(0xFF380312),
+            tertiaryContainer = Color(0xFF881337), onTertiaryContainer = Color(0xFFFCE7F3),
+            background = Color(0xFF0B0418), onBackground = Color(0xFFF5EEFD),
+            surface = Color(0xFF170C30), onSurface = Color(0xFFF5EEFD),
+            surfaceVariant = Color(0xFF251347), onSurfaceVariant = Color(0xFFD8B4FE),
+            outline = Color(0xFF6B21A8), outlineVariant = Color(0xFF3B1864),
+            gradientTop = Color(0xFF0B0418), gradientMiddle = Color(0xFF140827),
+            gradientBottom = Color(0xFF1E0E38), cardBorder = Color(0x28A855F7)
+        )
+    ),
+    AppTheme.ROYAL_AMETHYST to ThemePalettes(
+        light = Variant(
+            primary = Color(0xFF6B21A8), onPrimary = Color(0xFFFFFFFF),
+            primaryContainer = Color(0xFFF3E8FF), onPrimaryContainer = Color(0xFF4C1D95),
+            secondary = Color(0xFF9333EA), onSecondary = Color(0xFFFFFFFF),
+            secondaryContainer = Color(0xFFE9D5FF), onSecondaryContainer = Color(0xFF581C87),
+            tertiary = Color(0xFFD97706), onTertiary = Color(0xFFFFFFFF),
+            tertiaryContainer = Color(0xFFFEF3C7), onTertiaryContainer = Color(0xFF78350F),
+            background = Color(0xFFFAF5FF), onBackground = Color(0xFF3B0764),
+            surface = Color(0xFFFFFFFF), onSurface = Color(0xFF3B0764),
+            surfaceVariant = Color(0xFFF3E8FF), onSurfaceVariant = Color(0xFF581C87),
+            outline = Color(0xFFC084FC), outlineVariant = Color(0xFFE9D5FF),
+            gradientTop = Color(0xFFFAF5FF), gradientMiddle = Color(0xFFF3E8FF),
+            gradientBottom = Color(0xFFE9D5FF), cardBorder = Color(0x1A4C1D95)
+        ),
+        dark = Variant(
+            primary = Color(0xFFC084FC), onPrimary = Color(0xFF250345),
+            primaryContainer = Color(0xFF4C1D95), onPrimaryContainer = Color(0xFFF3E8FF),
+            secondary = Color(0xFFE879F9), onSecondary = Color(0xFF370442),
+            secondaryContainer = Color(0xFF701A75), onSecondaryContainer = Color(0xFFFDF4FF),
+            tertiary = Color(0xFFFBBF24), onTertiary = Color(0xFF451A03),
+            tertiaryContainer = Color(0xFF78350F), onTertiaryContainer = Color(0xFFFEF3C7),
+            background = Color(0xFF130722), onBackground = Color(0xFFF3E8FF),
+            surface = Color(0xFF22123B), onSurface = Color(0xFFF3E8FF),
+            surfaceVariant = Color(0xFF301B52), onSurfaceVariant = Color(0xFFD8B4FE),
+            outline = Color(0xFF581C87), outlineVariant = Color(0xFF3B0764),
+            gradientTop = Color(0xFF130722), gradientMiddle = Color(0xFF1B0B30),
+            gradientBottom = Color(0xFF251040), cardBorder = Color(0x28C084FC)
+        )
+    ),
+    AppTheme.SUNSET_AMBER to ThemePalettes(
+        light = Variant(
+            primary = Color(0xFFC2410C), onPrimary = Color(0xFFFFFFFF),
+            primaryContainer = Color(0xFFFFEDD5), onPrimaryContainer = Color(0xFF7C2D12),
+            secondary = Color(0xFFEA580C), onSecondary = Color(0xFFFFFFFF),
+            secondaryContainer = Color(0xFFFED7AA), onSecondaryContainer = Color(0xFF9A3412),
+            tertiary = Color(0xFFD97706), onTertiary = Color(0xFFFFFFFF),
+            tertiaryContainer = Color(0xFFFEF3C7), onTertiaryContainer = Color(0xFF78350F),
+            background = Color(0xFFFFF7ED), onBackground = Color(0xFF431407),
+            surface = Color(0xFFFFFFFF), onSurface = Color(0xFF431407),
+            surfaceVariant = Color(0xFFFFEDD5), onSurfaceVariant = Color(0xFF9A3412),
+            outline = Color(0xFFFDBA74), outlineVariant = Color(0xFFFED7AA),
+            gradientTop = Color(0xFFFFF7ED), gradientMiddle = Color(0xFFFFEDD5),
+            gradientBottom = Color(0xFFFED7AA), cardBorder = Color(0x1A7C2D12)
+        ),
+        dark = Variant(
+            primary = Color(0xFFFB923C), onPrimary = Color(0xFF370C03),
+            primaryContainer = Color(0xFF7C2D12), onPrimaryContainer = Color(0xFFFFEDD5),
+            secondary = Color(0xFFF97316), onSecondary = Color(0xFF320E02),
+            secondaryContainer = Color(0xFF9A3412), onSecondaryContainer = Color(0xFFFFEDD5),
+            tertiary = Color(0xFFFBBF24), onTertiary = Color(0xFF451A03),
+            tertiaryContainer = Color(0xFF78350F), onTertiaryContainer = Color(0xFFFEF3C7),
+            background = Color(0xFF180B04), onBackground = Color(0xFFFFEDD5),
+            surface = Color(0xFF2C1407), onSurface = Color(0xFFFFEDD5),
+            surfaceVariant = Color(0xFF3F1D0A), onSurfaceVariant = Color(0xFFFDBA74),
+            outline = Color(0xFF7C2D12), outlineVariant = Color(0xFF431407),
+            gradientTop = Color(0xFF180B04), gradientMiddle = Color(0xFF241006),
+            gradientBottom = Color(0xFF321609), cardBorder = Color(0x28FB923C)
+        )
+    ),
+    AppTheme.TITANIUM_FROST to ThemePalettes(
+        light = Variant(
+            primary = Color(0xFF334155), onPrimary = Color(0xFFFFFFFF),
+            primaryContainer = Color(0xFFE2E8F0), onPrimaryContainer = Color(0xFF0F172A),
+            secondary = Color(0xFF0284C7), onSecondary = Color(0xFFFFFFFF),
+            secondaryContainer = Color(0xFFE0F2FE), onSecondaryContainer = Color(0xFF0369A1),
+            tertiary = Color(0xFF0F766E), onTertiary = Color(0xFFFFFFFF),
+            tertiaryContainer = Color(0xFFCCFBF1), onTertiaryContainer = Color(0xFF115E59),
+            background = Color(0xFFF1F5F9), onBackground = Color(0xFF0F172A),
+            surface = Color(0xFFFFFFFF), onSurface = Color(0xFF0F172A),
+            surfaceVariant = Color(0xFFE2E8F0), onSurfaceVariant = Color(0xFF475569),
+            outline = Color(0xFF94A3B8), outlineVariant = Color(0xFFCBD5E1),
+            gradientTop = Color(0xFFF1F5F9), gradientMiddle = Color(0xFFE2E8F0),
+            gradientBottom = Color(0xFFCBD5E1), cardBorder = Color(0x1A0F172A)
+        ),
+        dark = Variant(
+            primary = Color(0xFF94A3B8), onPrimary = Color(0xFF0F172A),
+            primaryContainer = Color(0xFF1E293B), onPrimaryContainer = Color(0xFFF1F5F9),
+            secondary = Color(0xFF38BDF8), onSecondary = Color(0xFF082F49),
+            secondaryContainer = Color(0xFF0369A1), onSecondaryContainer = Color(0xFFE0F2FE),
+            tertiary = Color(0xFF2DD4BF), onTertiary = Color(0xFF042F2E),
+            tertiaryContainer = Color(0xFF115E59), onTertiaryContainer = Color(0xFFCCFBF1),
+            background = Color(0xFF0A0F1D), onBackground = Color(0xFFF1F5F9),
+            surface = Color(0xFF131E33), onSurface = Color(0xFFF1F5F9),
+            surfaceVariant = Color(0xFF1E2E4C), onSurfaceVariant = Color(0xFF94A3B8),
+            outline = Color(0xFF334155), outlineVariant = Color(0xFF1E293B),
+            gradientTop = Color(0xFF0A0F1D), gradientMiddle = Color(0xFF0F172C),
+            gradientBottom = Color(0xFF16223B), cardBorder = Color(0x2838BDF8)
+        )
     )
 )
 
@@ -441,6 +613,28 @@ fun Color.darker(factor: Float = 0.75f): Color =
 // Every Card / Button / TextField that uses the MaterialTheme defaults picks
 // these up automatically, so all screens change together.
 // ---------------------------------------------------------------------------
+val LocalNezamCardStyle = staticCompositionLocalOf { CardStyle.GLASS }
+val LocalNezamCornerStyle = staticCompositionLocalOf { CornerStyle.MODERN }
+val LocalNezamVisualEffects = staticCompositionLocalOf { VisualEffects.DYNAMIC }
+
+/** Read current card rendering style */
+val MaterialTheme.nezamCardStyle: CardStyle
+    @Composable
+    @ReadOnlyComposable
+    get() = LocalNezamCardStyle.current
+
+/** Read current corner radius preset */
+val MaterialTheme.nezamCornerStyle: CornerStyle
+    @Composable
+    @ReadOnlyComposable
+    get() = LocalNezamCornerStyle.current
+
+/** Read current visual animation intensity */
+val MaterialTheme.nezamVisualEffects: VisualEffects
+    @Composable
+    @ReadOnlyComposable
+    get() = LocalNezamVisualEffects.current
+
 val NezamShapes = Shapes(
     extraSmall = androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
     small = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
@@ -448,6 +642,17 @@ val NezamShapes = Shapes(
     large = androidx.compose.foundation.shape.RoundedCornerShape(20.dp),
     extraLarge = androidx.compose.foundation.shape.RoundedCornerShape(28.dp)
 )
+
+fun dynamicShapes(cornerStyle: CornerStyle): Shapes {
+    val r = cornerStyle.radiusDp.dp
+    return Shapes(
+        extraSmall = androidx.compose.foundation.shape.RoundedCornerShape((cornerStyle.radiusDp * 0.4f).coerceAtLeast(4f).dp),
+        small = androidx.compose.foundation.shape.RoundedCornerShape((cornerStyle.radiusDp * 0.6f).coerceAtLeast(6f).dp),
+        medium = androidx.compose.foundation.shape.RoundedCornerShape(r),
+        large = androidx.compose.foundation.shape.RoundedCornerShape((cornerStyle.radiusDp * 1.25f).dp),
+        extraLarge = androidx.compose.foundation.shape.RoundedCornerShape((cornerStyle.radiusDp * 1.5f).dp)
+    )
+}
 
 fun nezamTypography(fontScale: Float = 1.0f): Typography {
     fun scaled(sp: Int) = (sp * fontScale).sp
@@ -469,25 +674,29 @@ fun nezamTypography(fontScale: Float = 1.0f): Typography {
 
 /**
  * The single theme entry point. Wraps MaterialTheme with the selected
- * [AppTheme] + light/dark variant and provides the semantic colours and
- * the gradient / border extras. Changing the theme recomposes the whole
- * tree instantly — no restart, no data reload (the ViewModel flows are
- * untouched).
+ * [AppTheme] + light/dark variant and provides the semantic colours,
+ * card style, corner radius preset, and visual effects.
  */
 @Composable
 fun NezamMonitorTheme(
     appTheme: AppTheme = AppTheme.LIGHT_PREMIUM,
     darkTheme: Boolean = isSystemInDarkTheme(),
     fontScale: Float = 1.0f,
+    cardStyle: CardStyle = CardStyle.GLASS,
+    cornerStyle: CornerStyle = CornerStyle.MODERN,
+    visualEffects: VisualEffects = VisualEffects.DYNAMIC,
     content: @Composable () -> Unit
 ) {
     CompositionLocalProvider(
         LocalNezamSemanticColors provides if (darkTheme) darkSemantic else lightSemantic,
-        LocalNezamExtras provides extrasFor(appTheme, darkTheme)
+        LocalNezamExtras provides extrasFor(appTheme, darkTheme),
+        LocalNezamCardStyle provides cardStyle,
+        LocalNezamCornerStyle provides cornerStyle,
+        LocalNezamVisualEffects provides visualEffects
     ) {
         MaterialTheme(
             colorScheme = appColorScheme(appTheme, darkTheme),
-            shapes = NezamShapes,
+            shapes = dynamicShapes(cornerStyle),
             typography = nezamTypography(fontScale),
             content = content
         )
