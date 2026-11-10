@@ -17,8 +17,17 @@ data class ApiUserInfo(
     val ozv_num: String? = null,
     val name: String? = null,
     val family: String? = null,
+    // The API spells it `famil` in its other endpoints (own_famil,
+    // ozh_famil) — `family` alone comes back null, so the family name
+    // was silently dropped and only the first name showed.
+    val famil: String? = null,
+    val ozh_famil: String? = null,
     val user_shahrestan: Int = 0
 )
+
+/** Arabic-script letters (ي / ك) to Persian (ی / ک) — the API returns names in Arabic script. */
+internal fun toPersianChars(input: String): String =
+    input.replace('ي', 'ی').replace('ك', 'ک')
 
 class NezamApi {
     companion object {
@@ -84,7 +93,8 @@ class NezamApi {
             if (json.user != null) {
                 userId = json.user.id
                 cityId = json.user.user_shahrestan
-                userName = "${json.user.name ?: ""} ${json.user.family ?: ""}".trim()
+                val fam = json.user.family ?: json.user.famil ?: json.user.ozh_famil
+                userName = toPersianChars("${json.user.name ?: ""} ${fam ?: ""}".trim())
                 Result.success(Unit)
             } else {
                 Result.failure(Exception("کاربر یافت نشد"))
