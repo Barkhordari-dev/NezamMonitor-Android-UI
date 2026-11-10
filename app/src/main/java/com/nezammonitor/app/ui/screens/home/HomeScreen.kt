@@ -9,17 +9,21 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -54,6 +58,8 @@ fun HomeScreen(
     val fees by viewModel.fees.collectAsState()
     val reports by viewModel.reports.collectAsState()
     val importResult by viewModel.importResult.collectAsState()
+    // Logged-in user, from the API (MainViewModel). Blank = never logged in.
+    val userName by viewModel.userName.collectAsState()
     val isImporting by viewModel.isImporting.collectAsState()
 
     val coroutineScope = rememberCoroutineScope()
@@ -80,12 +86,114 @@ fun HomeScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
+        // Hero Greeting Banner
+        item(span = { GridItemSpan(2) }) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.large,
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)
+                ),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(
+                            Brush.horizontalGradient(
+                                listOf(
+                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                                    Color.Transparent
+                                )
+                            )
+                        )
+                        .padding(18.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    "خوش آمدید",
+                                    fontSize = 13.sp,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f))
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Text(
+                                        "ناظر فعال یزد",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                userName.ifBlank { "کاربر گرامی" },
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.ExtraBold
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                "سامانه جامع پایش پرونده‌ها و خدمات نظارت",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .size(50.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    Brush.linearGradient(
+                                        listOf(
+                                            MaterialTheme.colorScheme.primary,
+                                            MaterialTheme.colorScheme.secondary
+                                        )
+                                    )
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                "MB",
+                                color = MaterialTheme.colorScheme.onPrimary,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 18.sp
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // Section Title: عملیات سریع
+        item(span = { GridItemSpan(2) }) {
+            Text(
+                "عملیات سریع داده‌ها",
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
+
         // Row 1: Import + Export
         item {
             HeroActionCard(
                 emoji = if (isImporting) "⏳" else "📥",
                 title = "ورود اطلاعات",
-                subtitle = if (isImporting) "در حال ورود…" else "فایل .nzmdata",
+                subtitle = if (isImporting) "در حال واردسازی…" else "فایل .nzmdata",
                 enabled = !isImporting,
                 onClick = {
                     importLauncher.launch(arrayOf("application/zip", "application/octet-stream", "*/*"))
@@ -96,24 +204,24 @@ fun HomeScreen(
         item {
             HeroActionCard(
                 emoji = "📤",
-                title = "خروجی برای ویندوز",
-                subtitle = "فایل اکسل",
+                title = "خروجی ویندوز",
+                subtitle = "فایل اکسل گزارش",
                 onClick = onNavigateToExport,
                 modifier = Modifier.fillMaxWidth()
             )
         }
-        item {
+        item(span = { GridItemSpan(2) }) {
             HeroActionCard(
                 emoji = "🔄",
-                title = "بروزرسانی",
-                subtitle = "از سامانه یزد",
+                title = "بروزرسانی مستقیم از سامانه یزد",
+                subtitle = "اتصال به API و دریافت پرونده‌های جدید",
                 onClick = onNavigateToUpdate,
                 modifier = Modifier.fillMaxWidth()
             )
         }
 
-        // Import result — animates in/out, same message and dismiss action.
-        item {
+        // Import result notification
+        item(span = { GridItemSpan(2) }) {
             AnimatedVisibility(
                 visible = importResult != null,
                 enter = fadeIn() + expandVertically(),
@@ -125,69 +233,91 @@ fun HomeScreen(
                         MaterialTheme.colorScheme.primaryContainer
                     else MaterialTheme.colorScheme.errorContainer
                 ) {
-                    Column(modifier = Modifier.padding(12.dp)) {
+                    Column(modifier = Modifier.padding(14.dp)) {
                         Text(
                             text = if (importResult?.success == true) "✅ ${importResult?.message}" else "❌ ${importResult?.message}",
-                            fontSize = 12.sp
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium
                         )
                         TextButton(onClick = { viewModel.clearImportResult() }) {
-                            Text("بستن")
+                            Text("بستن پیام")
                         }
                     }
                 }
             }
         }
 
-        // Row 2: Cases (clickable)
+        // Section Title: آمار و اطلاعات
+        item(span = { GridItemSpan(2) }) {
+            Text(
+                "داشبورد آمار پرونده‌ها",
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
+
+        // Stats Cards
         item {
-            StatCard("📋 پرونده\u200Cها", cases.size, MaterialTheme.colorScheme.primary, onClick = onNavigateToCases)
+            StatCard("📋 پرونده‌ها", cases.size, MaterialTheme.colorScheme.primary, onClick = onNavigateToCases)
         }
         item {
             StatCard("👷 مهندسین", engineers.size, MaterialTheme.colorScheme.secondary, onClick = onNavigateToEngineers)
         }
         item {
-            StatCard("💰 حق\u200Cالزحمه", fees.size, MaterialTheme.colorScheme.tertiary, onClick = onNavigateToFees)
+            StatCard("💰 حق‌الزحمه", fees.size, MaterialTheme.colorScheme.tertiary, onClick = onNavigateToFees)
         }
         item {
-            StatCard("📄 گزارش\u200Cها", reports.size, MaterialTheme.colorScheme.error, onClick = onNavigateToReports)
+            StatCard("📄 گزارش‌ها", reports.size, MaterialTheme.colorScheme.error, onClick = onNavigateToReports)
         }
 
-        // Row 3: FollowUp quick link
-        item {
+        // Section Title: دسترسی سریع
+        item(span = { GridItemSpan(2) }) {
+            Text(
+                "بخش‌ها و گزارشات",
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
+
+        // Quick Links
+        item(span = { GridItemSpan(2) }) {
             MenuLinkCard(
                 emoji = "📌",
-                title = "پیگیری\u200Cها",
-                onClick = { onNavigateToFollowUp() },
+                title = "پیگیری‌ها و یادداشت‌های پرونده",
+                subtitle = "مدیریت یادداشت‌ها و فیلدهای پیگیری ناظر",
+                onClick = onNavigateToFollowUp,
                 modifier = Modifier.fillMaxWidth()
             )
         }
 
-        // Row 4: Report Generator
-        item {
+        item(span = { GridItemSpan(2) }) {
             MenuLinkCard(
                 emoji = "📊",
-                title = "تولید گزارش",
-                onClick = { onNavigateToReportGenerator() },
+                title = "تولید گزارش مهندسی",
+                subtitle = "ساخت فایل Word مرحله اول/دوم/سوم با POI",
+                onClick = onNavigateToReportGenerator,
                 modifier = Modifier.fillMaxWidth()
             )
         }
 
-        // Row 5: Report History
-        item {
+        item(span = { GridItemSpan(2) }) {
             MenuLinkCard(
                 emoji = "📦",
-                title = "سابقه گزارش\u200Cها",
-                onClick = { onNavigateToReportHistory() },
+                title = "سابقه گزارش‌های تولیدشده",
+                subtitle = "مشاهده و اشتراک‌گذاری گزارشات ذخیره‌شده",
+                onClick = onNavigateToReportHistory,
                 modifier = Modifier.fillMaxWidth()
             )
         }
 
-        // Row 6: Settings
-        item {
+        item(span = { GridItemSpan(2) }) {
             MenuLinkCard(
                 emoji = "⚙️",
-                title = "تنظیمات",
-                onClick = { onNavigateToSettings() },
+                title = "تنظیمات و سفارشی‌سازی ظاهر",
+                subtitle = "۹ تم اختصاصی، سبک کارت، اندازه فونت و چینش",
+                onClick = onNavigateToSettings,
                 modifier = Modifier.fillMaxWidth()
             )
         }
@@ -198,7 +328,7 @@ fun HomeScreen(
 fun StatCard(
     title: String,
     count: Int,
-    color: androidx.compose.ui.graphics.Color,
+    color: Color,
     onClick: () -> Unit = {}
 ) {
     NezamCard(
@@ -206,14 +336,13 @@ fun StatCard(
         onClick = onClick
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
-            // Gradient accent bar (accent → transparent), UAC-style.
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(4.dp)
                     .background(
                         Brush.horizontalGradient(
-                            listOf(color, color.copy(alpha = 0.15f))
+                            listOf(color, color.copy(alpha = 0.2f))
                         )
                     )
             )
@@ -221,15 +350,25 @@ fun StatCard(
                 modifier = Modifier.padding(16.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // Small muted label + big semi-bold number (reference rhythm).
                 Text(
                     title,
-                    fontSize = 12.sp,
+                    fontSize = 13.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    "$count",
+                    fontSize = 28.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = color
+                )
                 Spacer(modifier = Modifier.height(4.dp))
-                Text("$count", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = color)
+                Text(
+                    "لمس جهت مشاهده",
+                    fontSize = 10.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                )
             }
         }
     }
