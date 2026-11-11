@@ -1,5 +1,6 @@
 package com.nezammonitor.app.ui.screens.followup
 
+import com.nezammonitor.app.api.toPersianChars
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.clickable
@@ -159,7 +160,7 @@ fun FollowUpScreen(viewModel: MainViewModel) {
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(item.caseNumber, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                                Text("مالک: ${item.owner}", fontSize = 13.sp)
+                                Text("مالک: ${toPersianChars(item.owner)}", fontSize = 13.sp)
                             }
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)) {

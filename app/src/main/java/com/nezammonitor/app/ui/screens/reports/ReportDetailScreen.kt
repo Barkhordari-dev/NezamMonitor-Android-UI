@@ -19,7 +19,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.nezammonitor.app.data.SinaEngineerStore
 import com.nezammonitor.app.data.formatSinaLevels
+import com.nezammonitor.app.api.toPersianChars
 import com.nezammonitor.app.ui.components.SectionTitle
+import com.nezammonitor.app.ui.components.reportStageLabel
 import com.nezammonitor.app.viewmodel.MainViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -52,7 +54,7 @@ fun ReportDetailScreen(viewModel: MainViewModel, onBack: () -> Unit) {
             item {
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(16.dp)) {
-                        Text("مالک: ${case?.owner ?: ""}", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                        Text("مالک: ${toPersianChars(case?.owner ?: "")}", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text("پرونده: ${case?.caseNumber ?: ""}", fontSize = 13.sp, color = MaterialTheme.colorScheme.primary)
                             if (case?.ownerMobile?.isNotBlank() == true) {
@@ -74,8 +76,9 @@ fun ReportDetailScreen(viewModel: MainViewModel, onBack: () -> Unit) {
                     Card(modifier = Modifier.fillMaxWidth()) {
                         Column(modifier = Modifier.padding(14.dp)) {
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text(report.reportType, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                                Text("مرحله ${report.stage}", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
+                                Text(toPersianChars(report.reportType), fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                val stageLabel = reportStageLabel(report.reportType, report.stage)
+                                if (stageLabel.isNotBlank()) Text(stageLabel, fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
                             }
                             Spacer(modifier = Modifier.height(4.dp))
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -84,7 +87,7 @@ fun ReportDetailScreen(viewModel: MainViewModel, onBack: () -> Unit) {
                             }
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                                 Column(modifier = Modifier.weight(1f)) {
-                                    Text("مهندس: ${report.engineer}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text("مهندس: ${toPersianChars(report.engineer)}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     if (sinaRep != null) Text(formatSinaLevels(sinaRep), fontSize = 11.sp, color = MaterialTheme.colorScheme.secondary)
                                 }
                                 if (sinaRep?.phone?.isNotBlank() == true) {
@@ -94,7 +97,7 @@ fun ReportDetailScreen(viewModel: MainViewModel, onBack: () -> Unit) {
                                     }) { Icon(Icons.Default.Phone, contentDescription = "تماس", tint = MaterialTheme.colorScheme.primary) }
                                 }
                             }
-                            Text("رشته: ${report.discipline}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("رشته: ${toPersianChars(report.discipline)}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             if (sinaRep?.phone?.isNotBlank() == true) {
                                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable {
                                     val c = sinaRep.phone.replace(Regex("[^0-9+]"), "")

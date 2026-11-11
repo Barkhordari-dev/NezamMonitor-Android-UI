@@ -1,5 +1,6 @@
 package com.nezammonitor.app.ui.screens.fees
 
+import com.nezammonitor.app.api.toPersianChars
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -12,6 +13,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.nezammonitor.app.ui.components.confirmStatusDisplay
+import com.nezammonitor.app.ui.components.feeTitle
 import com.nezammonitor.app.viewmodel.MainViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -67,7 +70,7 @@ fun FeeDetailScreen(viewModel: MainViewModel, onBack: () -> Unit) {
             item {
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(16.dp)) {
-                        Text("مالک: ${case?.owner ?: ""}", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                        Text("مالک: ${toPersianChars(case?.owner ?: "")}", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                         Text("پرونده: ${case?.caseNumber ?: ""}", fontSize = 13.sp, color = MaterialTheme.colorScheme.primary)
                     }
                 }
@@ -145,17 +148,17 @@ fun FeeDetailScreen(viewModel: MainViewModel, onBack: () -> Unit) {
                         )
                         Column(modifier = Modifier.weight(1f)) {
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text("${fee.discipline} - ${fee.amountType}", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                Text(feeTitle(fee, fees), fontWeight = FontWeight.Bold, fontSize = 14.sp)
                                 Text(fee.amount, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = MaterialTheme.colorScheme.primary)
                             }
                             Spacer(modifier = Modifier.height(2.dp))
-                            Text("مرحله: ${fee.stage}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             if (fee.startDate.isNotBlank() || fee.endDate.isNotBlank()) {
                                 Text("تاریخ: ${fee.startDate.ifBlank { "_" }} → ${fee.endDate.ifBlank { "_" }}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                 Text("پرداخت: ${fee.payStatus}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                if (fee.confirmStatus.isNotBlank()) Text("تأیید: ${fee.confirmStatus}", fontSize = 11.sp, color = MaterialTheme.colorScheme.secondary)
+                                val confirm = confirmStatusDisplay(fee)
+                                if (confirm.isNotBlank()) Text("تأیید: $confirm", fontSize = 11.sp, color = MaterialTheme.colorScheme.secondary)
                             }
                         }
                     }

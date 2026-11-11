@@ -1,5 +1,6 @@
 package com.nezammonitor.app.ui.screens.cases
 
+import com.nezammonitor.app.api.toPersianChars
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.background
@@ -120,7 +121,7 @@ fun CasesScreen(viewModel: MainViewModel, onCaseClick: (String) -> Unit) {
                                     )
                                 }
                                 Text(
-                                    case.owner,
+                                    toPersianChars(case.owner),
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 15.sp
                                 )

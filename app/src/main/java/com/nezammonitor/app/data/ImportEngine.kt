@@ -135,12 +135,25 @@ class ImportEngine(private val context: Context) {
                 
                 val fees = exportData.cases.flatMap { ec ->
                     ec.fees.map { ef ->
+                        // The Windows export stores amountType as the raw code
+                        // ("n"/"b"/"ho"/"t"/"pn") and confirmStatus sometimes as a bare
+                        // number ("85") — normalize both on import so the stored data
+                        // is display-ready (display code maps them too, for older imports).
+                        val mappedAmountType = when (ef.amountType.trim().lowercase()) {
+                            "n" -> "نظارت"
+                            "b" -> "بیمه"
+                            "ho" -> "حسن انجام کار"
+                            "t" -> "مالیات نظارت سهم سازمان"
+                            "pn" -> "نظارت سهم سازمان"
+                            else -> ef.amountType
+                        }
+                        val mappedConfirm = if (ef.confirmStatus.trim() == "تایید شده" || ef.confirmStatus.trim() == "1") "تایید شده" else ""
                         FeeEntity(
                             caseNumber = ec.caseNumber, discipline = ef.discipline,
                             serviceType = ef.serviceType, stage = ef.stage,
                             startDate = ef.startDate, endDate = ef.endDate,
                             amount = ef.amount, payStatus = ef.payStatus,
-                            confirmStatus = ef.confirmStatus, amountType = ef.amountType,
+                            confirmStatus = mappedConfirm, amountType = mappedAmountType,
                             description = ef.description
                         )
                     }

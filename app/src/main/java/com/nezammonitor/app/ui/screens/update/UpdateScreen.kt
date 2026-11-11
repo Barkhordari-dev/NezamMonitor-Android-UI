@@ -358,7 +358,8 @@ fun UpdateScreen(
                                             visitDate = safe(rpt, "br_bazdid_date"),
                                             ceilingCount = safe(rpt, "br_exec_ceil"),
                                             indicator = safe(rpt, "br_andicator"),
-                                            hasFile = safe(rpt, "image_name").isNotEmpty()
+                                            hasFile = safe(rpt, "image_name").isNotEmpty(),
+                                            imageName = safe(rpt, "image_name")
                                         ))
                                     }
                                 }

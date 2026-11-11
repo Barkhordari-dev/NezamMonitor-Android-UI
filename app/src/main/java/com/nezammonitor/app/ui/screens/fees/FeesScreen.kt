@@ -14,12 +14,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.nezammonitor.app.api.toPersianChars
 import com.nezammonitor.app.data.FeeEntity
 import com.nezammonitor.app.data.FeeReceiptEntity
 import com.nezammonitor.app.ui.components.NezamCard
 import com.nezammonitor.app.ui.components.NezamEmptyState
 import com.nezammonitor.app.ui.components.NezamSearchField
 import com.nezammonitor.app.ui.components.NezamSegmentedControl
+import com.nezammonitor.app.ui.components.feeTitle
+import com.nezammonitor.app.ui.components.parseAmount
 import com.nezammonitor.app.viewmodel.MainViewModel
 
 private fun normalizeDigits(s: String): String = s
@@ -27,12 +30,6 @@ private fun normalizeDigits(s: String): String = s
     .replace("۵","5").replace("۶","6").replace("۷","7").replace("۸","8").replace("۹","9")
     .replace("٠","0").replace("١","1").replace("٢","2").replace("٣","3").replace("٤","4")
     .replace("٥","5").replace("٦","6").replace("٧","7").replace("٨","8").replace("٩","9")
-private fun parseAmount(amount: String): Long {
-    if (amount.isBlank()) return 0L
-    var c = amount.replace("ریال","").replace(",","").replace("٬","").replace("،","").replace(" ","").trim()
-    c = normalizeDigits(c)
-    return c.toLongOrNull() ?: 0L
-}
 private fun formatAmount(amount: Long): String = String.format(java.util.Locale.US, "%,d", amount) + " ریال"
 private fun formatAmountShort(amount: Long): String = String.format(java.util.Locale.US, "%,d", amount)
 private fun formatAmountDisplay(raw: String): String {
@@ -43,17 +40,6 @@ private fun formatAmountDisplay(raw: String): String {
     val v = num.toLongOrNull() ?: return raw
     return String.format(java.util.Locale.US, "%,d", v) + " ریال"
 }
-private fun mappedServiceType(fee: FeeEntity, allOfCase: List<FeeEntity>): String {
-    val st = fee.stage.trim()
-    if (st != "0") return "نظارت"
-    val stage0 = allOfCase.filter { it.stage.trim() == "0" }
-    val order = arrayOf("حسن انجام کار", "نظارت سهم سازمان", "مالیات نظارت سهم سازمان", "بیمه")
-    val sorted = stage0.sortedByDescending { parseAmount(it.amount) }
-    val idx = sorted.indexOfFirst { it.id == fee.id }
-    if (idx == -1) return "بیمه"
-    return if (idx < order.size) order[idx] else order.last()
-}
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FeesScreen(viewModel: MainViewModel, initialTab: Int = 0, onCaseClick: (String) -> Unit = {}) {
@@ -96,15 +82,25 @@ private fun FeesTab(fees: List<FeeEntity>, cases: List<com.nezammonitor.app.data
     val filtered = remember(fees, searchQuery, payFilter, feesByCase) {
         fees.filter { f ->
             val q = searchQuery.trim()
-            val svc = mappedServiceType(f, feesByCase[f.caseNumber] ?: emptyList())
+            val caseFees = feesByCase[f.caseNumber] ?: emptyList()
+            // Search matches what the user sees: the fee title (with the fee's own
+            // discipline, Persian script) — Arabic-script stored values must match too.
             val matchSearch = q.isBlank() ||
                 f.caseNumber.contains(q, true) ||
                 (caseOwnerMap[f.caseNumber]?.contains(q, true) == true) ||
-                f.discipline.contains(q, true) ||
-                svc.contains(q, true) ||
+                toPersianChars(f.discipline).contains(toPersianChars(q), true) ||
+                feeTitle(f, caseFees).contains(q, true) ||
                 f.stage.contains(q, true) ||
                 f.payStatus.contains(q, true)
-            val matchPay = payFilter == null || f.payStatus.contains(payFilter!!, true)
+            // «پرداخت شده» = حق‌الزحمه‌ای که تاریخ پایان (پرداخت) دارد.
+            // قبلاً روی payStatus جستجوی زیررشته‌ای می‌شد ("پرداخت") که «پرداخت نشده»
+            // را هم می‌گرفت، چون آن هم شامل «پرداخت» است — فیلتر عملاً همه را نشان می‌داد.
+            val matchPay = when (val pf = payFilter) {
+                null -> true
+                "پرداخت" -> f.endDate.isNotBlank()
+                "تایید" -> f.payStatus == "تایید شده"
+                else -> f.payStatus.contains(pf, true)
+            }
             matchSearch && matchPay
         }
     }
@@ -168,15 +164,11 @@ private fun FeesTab(fees: List<FeeEntity>, cases: List<com.nezammonitor.app.data
                             Column(modifier = Modifier.weight(1f).padding(start = 6.dp)) {
                                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                     Text(fee.caseNumber, fontWeight = FontWeight.Bold, fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
-                                    if (owner.isNotBlank()) Text(owner, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    if (owner.isNotBlank()) Text(toPersianChars(owner), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    Text("${fee.discipline} • ${fee.stage}", fontSize = 11.sp)
+                                    Text(feeTitle(fee, feesByCase[fee.caseNumber] ?: emptyList()), fontSize = 11.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.secondary)
                                     AssistChip(onClick = {}, label = { Text(fee.payStatus.ifBlank { "—" }, fontSize = 10.sp) }, modifier = Modifier.height(22.dp))
-                                }
-                                run {
-                                    val svcMapped = mappedServiceType(fee, feesByCase[fee.caseNumber] ?: emptyList())
-                                    Text(if (fee.amountType.isNotBlank()) "$svcMapped (${fee.amountType})" else svcMapped, fontSize = 11.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.secondary)
                                 }
                                 if (fee.startDate.isNotBlank() || fee.endDate.isNotBlank())
                                     Text("شروع: ${fee.startDate.ifBlank { "—" }}  |  پایان: ${fee.endDate.ifBlank { "—" }}", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)

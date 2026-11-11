@@ -113,7 +113,9 @@ data class ReportEntity(
     val visitDate: String = "",
     val ceilingCount: String = "",
     val indicator: String = "",
-    val hasFile: Boolean = false
+    val hasFile: Boolean = false,
+    /** Server file name (image_name from getGozareshat) — used to download the report from the system. Empty for imported (.nzmdata) reports. */
+    val imageName: String = ""
 )
 
 @Entity(tableName = "fee_receipts")

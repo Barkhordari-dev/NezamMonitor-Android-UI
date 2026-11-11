@@ -9,7 +9,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [CaseEntity::class, SpecificationEntity::class, EngineerEntity::class, FeeEntity::class, ReportEntity::class, FollowUpEditEntity::class, FeeReceiptEntity::class],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 abstract class NezamDatabase : RoomDatabase() {
@@ -63,6 +63,12 @@ abstract class NezamDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                try { db.execSQL("ALTER TABLE reports ADD COLUMN imageName TEXT DEFAULT ''") } catch (_: Exception) {}
+            }
+        }
+
         fun getDatabase(context: Context): NezamDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -70,7 +76,7 @@ abstract class NezamDatabase : RoomDatabase() {
                     NezamDatabase::class.java,
                     "nezam_monitor.db"
                 )
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                 .fallbackToDestructiveMigration()
                 .build()
                 INSTANCE = instance

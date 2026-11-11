@@ -21,6 +21,11 @@ import com.nezammonitor.app.data.SinaEngineerStore
 import com.nezammonitor.app.data.formatSinaLevels
 import com.nezammonitor.app.ui.components.NezamLoadingState
 import com.nezammonitor.app.ui.components.SectionTitle
+import com.nezammonitor.app.api.toPersianChars
+import com.nezammonitor.app.ui.components.confirmStatusDisplay
+import com.nezammonitor.app.ui.components.feeTitle
+import com.nezammonitor.app.ui.components.reportStageLabel
+import com.nezammonitor.app.ui.components.stageNameOnly
 import com.nezammonitor.app.viewmodel.MainViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -146,7 +151,7 @@ fun CaseDetailScreen(viewModel: MainViewModel, onBack: () -> Unit) {
                         Column(modifier = Modifier.padding(16.dp)) {
                             SectionTitle("مهندسین (${engineers.size})")
                             Spacer(modifier = Modifier.height(8.dp))
-                            Text("اطلاعات تکمیلی از بانک ۵۹۰۲ مهندس سینا یزد", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("اطلاعات تکمیلی از بانک اطلاعات مهندسین نظام مهندسی یزد", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 }
@@ -156,8 +161,8 @@ fun CaseDetailScreen(viewModel: MainViewModel, onBack: () -> Unit) {
                         Column(modifier = Modifier.padding(12.dp)) {
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
                                 Column(modifier = Modifier.weight(1f)) {
-                                    Text(eng.name, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                                    Text("رشته: ${eng.discipline}", fontSize = 13.sp)
+                                    Text(toPersianChars(eng.name), fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                    Text("رشته: ${toPersianChars(eng.discipline)}", fontSize = 13.sp)
                                     if (eng.role.isNotBlank()) {
                                         Text("نقش: ${eng.role}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
@@ -220,11 +225,11 @@ fun CaseDetailScreen(viewModel: MainViewModel, onBack: () -> Unit) {
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                Text("${fee.discipline} - ${fee.amountType}", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                Text(feeTitle(fee, fees), fontWeight = FontWeight.Bold, fontSize = 13.sp)
                                 Text(fee.amount, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = MaterialTheme.colorScheme.primary)
                             }
-                            Text("مرحله: ${fee.stage}", fontSize = 12.sp)
-                            Text("پرداخت: ${fee.payStatus} | تأیید: ${fee.confirmStatus}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            val confirm = confirmStatusDisplay(fee)
+                            Text("پرداخت: ${fee.payStatus}" + if (confirm.isNotBlank()) " | تأیید: $confirm" else "", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             if (fee.description.isNotBlank()) {
                                 Text("توضیحات: ${fee.description}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
@@ -251,12 +256,13 @@ fun CaseDetailScreen(viewModel: MainViewModel, onBack: () -> Unit) {
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                Text("${report.reportType}", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                                Text("مرحله ${report.stage}", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
+                                Text(toPersianChars(report.reportType), fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                val stageLabel = reportStageLabel(report.reportType, report.stage)
+                                if (stageLabel.isNotBlank()) Text(stageLabel, fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
                             }
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                                 Column(modifier = Modifier.weight(1f)) {
-                                    Text("مهندس: ${report.engineer} | رشته: ${report.discipline}", fontSize = 12.sp)
+                                    Text("مهندس: ${toPersianChars(report.engineer)} | رشته: ${toPersianChars(report.discipline)}", fontSize = 12.sp)
                                     if (sinaRep != null) {
                                         Text(formatSinaLevels(sinaRep), fontSize = 11.sp, color = MaterialTheme.colorScheme.secondary)
                                     }

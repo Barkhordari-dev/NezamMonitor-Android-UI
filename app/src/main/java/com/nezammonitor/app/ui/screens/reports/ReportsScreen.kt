@@ -15,10 +15,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.nezammonitor.app.api.toPersianChars
 import com.nezammonitor.app.ui.components.NezamCard
 import com.nezammonitor.app.ui.components.NezamCountPill
 import com.nezammonitor.app.ui.components.NezamEmptyState
 import com.nezammonitor.app.ui.components.NezamSearchField
+import com.nezammonitor.app.ui.components.reportStageLabel
 import com.nezammonitor.app.viewmodel.MainViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -71,7 +73,7 @@ fun ReportsScreen(viewModel: MainViewModel, onCaseClick: (String) -> Unit = {}) 
                     Column(modifier = Modifier.padding(14.dp)) {
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                             Column {
-                                Text(case.owner, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                                Text(toPersianChars(case.owner), fontWeight = FontWeight.Bold, fontSize = 15.sp)
                                 Text("پرونده: ${case.caseNumber}", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
                             }
                             Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
@@ -80,7 +82,8 @@ fun ReportsScreen(viewModel: MainViewModel, onCaseClick: (String) -> Unit = {}) 
                         }
                         Spacer(modifier = Modifier.height(4.dp))
                         caseReports.take(2).forEach { rep ->
-                            Text("• ${rep.reportType} (${rep.stage}) - ${rep.visitDate}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            val stageLabel = reportStageLabel(rep.reportType, rep.stage)
+                            Text("• ${toPersianChars(rep.reportType)}${if (stageLabel.isNotBlank()) " ($stageLabel)" else ""} - ${rep.visitDate}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         if (caseReports.size > 2) Text("+ ${caseReports.size - 2} گزارش دیگر", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }

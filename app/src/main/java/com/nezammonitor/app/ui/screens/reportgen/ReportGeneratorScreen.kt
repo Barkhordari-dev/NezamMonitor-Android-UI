@@ -15,8 +15,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.nezammonitor.app.api.toPersianChars
 import com.nezammonitor.app.data.*
 import com.nezammonitor.app.ui.components.SectionTitle
+import com.nezammonitor.app.ui.components.stageNameForNumber
+import com.nezammonitor.app.ui.components.stageNumberFromTitle
 import com.nezammonitor.app.viewmodel.MainViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -32,8 +35,20 @@ fun ReportGeneratorScreen(viewModel: MainViewModel, onBack: () -> Unit) {
     val context = LocalContext.current
     val cases by viewModel.cases.collectAsState()
     val engineers by viewModel.engineers.collectAsState()
+    val fees by viewModel.fees.collectAsState()
     val specs by viewModel.specifications.collectAsState()
+    val reports by viewModel.reports.collectAsState()
     val scope = rememberCoroutineScope()
+    val today = remember { todayJalali() }
+    // Stage 4 exists only if at least one case needs it (groups ب/ج/د by discipline),
+    // using the same resolved group/discipline as the case rows below.
+    val anyFourStage = remember(cases, specs, engineers, fees, reports) {
+        cases.any { c ->
+            val spec = specs.firstOrNull { it.caseNumber == c.caseNumber }
+            val (g, d) = resolveCaseGroupDiscipline(c, spec, engineers, fees, reports)
+            stageCountForCase(g, d) == 4
+        }
+    }
 
     var selectedStage by remember { mutableIntStateOf(0) }
     var useLtr by remember { mutableStateOf(false) }
@@ -43,6 +58,8 @@ fun ReportGeneratorScreen(viewModel: MainViewModel, onBack: () -> Unit) {
     var statusText by remember { mutableStateOf("") }
     var resultFiles by remember { mutableStateOf(listOf<File>()) }
     var showDuplicateWarning by remember { mutableStateOf(false) }
+    // Local generation history (SharedPreferences) — refreshed after each generation
+    var localHistory by remember { mutableStateOf(loadReportHistory(context)) }
 
     val templatesDir = File("/storage/emulated/0/NezamMonitor/templates")
     val outputsDir = File("/storage/emulated/0/NezamMonitor/outputs")
@@ -73,6 +90,7 @@ fun ReportGeneratorScreen(viewModel: MainViewModel, onBack: () -> Unit) {
             resultFiles = result.files
             statusText = result.message
             isGenerating = false
+            localHistory = loadReportHistory(context)
         }
     }
 
@@ -97,7 +115,7 @@ fun ReportGeneratorScreen(viewModel: MainViewModel, onBack: () -> Unit) {
                 Button(
                     onClick = {
                         if (selectedStage == 0 || selectedCases.isEmpty()) { statusText = "لطفاً مرحله و حداقل یک پرونده را انتخاب کنید"; return@Button }
-                        val stageName = when(selectedStage) { 1 -> "اول"; 2 -> "دوم"; 3 -> "سوم"; else -> "اول" }
+                        val stageName = stageNameForNumber(selectedStage)
                         val hasDuplicates = cases.filter { it.caseNumber in selectedCases }.any { case ->
                             val idx = cases.indexOf(case)
                             val rowNum = String.format("%02d", idx + 1)
@@ -130,8 +148,22 @@ fun ReportGeneratorScreen(viewModel: MainViewModel, onBack: () -> Unit) {
             item {
                 SectionTitle("انتخاب مرحله")
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf(1 to "مرحله اول", 2 to "مرحله دوم", 3 to "مرحله سوم").forEach { (num, name) ->
-                        FilterChip(selected = selectedStage == num, onClick = { selectedStage = num }, label = { Text(name, fontSize = 13.sp) })
+                    val stages = if (anyFourStage) listOf(1, 2, 3, 4) else listOf(1, 2, 3)
+                    stages.forEach { num ->
+                        FilterChip(
+                            selected = selectedStage == num,
+                            onClick = {
+                                selectedStage = num
+                                if (num == 4) {
+                                    // keep only cases that actually need a 4th stage
+                                    selectedCases = selectedCases.filter { cn ->
+                                        val c = cases.firstOrNull { it.caseNumber == cn }
+                                        c != null && stageCountForCase(c.buildingGroup, c.discipline) >= 4
+                                    }.toSet()
+                                }
+                            },
+                            label = { Text("مرحله ${stageNameForNumber(num)}", fontSize = 13.sp) }
+                        )
                     }
                 }
             }
@@ -147,12 +179,87 @@ fun ReportGeneratorScreen(viewModel: MainViewModel, onBack: () -> Unit) {
                 }
             }
 
-            item { Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(checked = selectAll, onCheckedChange = { selectAll = it; selectedCases = if (it) cases.map { c -> c.caseNumber }.toSet() else emptySet() }); Text("انتخاب همه (${cases.size})", fontSize = 14.sp) } }
+            item { Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(checked = selectAll, onCheckedChange = { selectAll = it; selectedCases = if (it) cases.filter { c -> val spec = specs.firstOrNull { it.caseNumber == c.caseNumber }; val (g, d) = resolveCaseGroupDiscipline(c, spec, engineers, fees, reports); selectedStage == 0 || selectedStage <= stageCountForCase(g, d) }.map { c -> c.caseNumber }.toSet() else emptySet() }); Text("انتخاب همه (${cases.size})", fontSize = 14.sp) } }
 
             items(cases) { case ->
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().clickable { selectedCases = if (case.caseNumber in selectedCases) selectedCases - case.caseNumber else selectedCases + case.caseNumber }) {
-                    Checkbox(checked = case.caseNumber in selectedCases, onCheckedChange = { selectedCases = if (case.caseNumber in selectedCases) selectedCases - case.caseNumber else selectedCases + case.caseNumber })
-                    Column(modifier = Modifier.weight(1f)) { Text(case.owner, fontSize = 14.sp); Text(case.caseNumber, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                val spec = specs.firstOrNull { it.caseNumber == case.caseNumber }
+                // The case row itself often lacks group/discipline/permit (the cases
+                // endpoint leaves mas_title/bg_name blank): fall back to the
+                // specification (group + permit, like the case detail screen) and to
+                // the case's engineers/fees/reports (discipline, like the case
+                // detail's engineer/fee sections).
+                val (resolvedGroupRaw, resolvedDiscipline) = resolveCaseGroupDiscipline(case, spec, engineers, fees, reports)
+                val stageCount = stageCountForCase(resolvedGroupRaw, resolvedDiscipline)
+                val eligible = selectedStage == 0 || selectedStage <= stageCount
+                val groupLetter = buildingGroupLetter(resolvedGroupRaw)
+                // The permit date is the spec's "تاریخ صدور" (shown in the case detail
+                // right after "شماره پروانه") — that is the source; the case row's own
+                // permit date is only a fallback.
+                val permitRaw = spec?.permitDate?.ifBlank { case.permitDate } ?: case.permitDate
+                val registeredStages = remember(reports, case.caseNumber) {
+                    reports.filter { it.caseNumber == case.caseNumber }
+                        .mapNotNull { stageNumberFromTitle(it.stage).takeIf { n -> n > 0 } }.toSet()
+                }
+                val schedule = remember(case, spec, registeredStages) {
+                    scheduleForCase(permitRaw, resolvedGroupRaw, stageCount, registeredStages, today)
+                }
+                // Generation history per stage: local file (with generation date+time)
+                // and/or server report (with registration date) for this case.
+                val historyByStage = remember(case, localHistory, reports) {
+                    val map = mutableMapOf<Int, Pair<GeneratedReportRecord?, ReportEntity?>>()
+                    localHistory.filter { it.caseNumber == case.caseNumber }.forEach { rec ->
+                        val cur = map[rec.stage]
+                        map[rec.stage] = rec to cur?.second
+                    }
+                    reports.filter { it.caseNumber == case.caseNumber }.forEach { rep ->
+                        val n = stageNumberFromTitle(rep.stage)
+                        if (n > 0) {
+                            val cur = map[n]
+                            map[n] = cur?.first to rep
+                        }
+                    }
+                    map
+                }
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().clickable(enabled = eligible) { selectedCases = if (case.caseNumber in selectedCases) selectedCases - case.caseNumber else selectedCases + case.caseNumber }) {
+                    Checkbox(checked = case.caseNumber in selectedCases, enabled = eligible, onCheckedChange = { if (eligible) selectedCases = if (case.caseNumber in selectedCases) selectedCases - case.caseNumber else selectedCases + case.caseNumber })
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(toPersianChars(case.owner), fontSize = 14.sp)
+                        Text(case.caseNumber, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        val groupText = if (groupLetter.isNotBlank()) "گروه $groupLetter" else "گروه نامشخص"
+                        val discText = resolvedDiscipline.ifBlank { "رشته نامشخص" }
+                        Text("$groupText • $discText • ${toPersianDigits(stageCount.toString())} مرحله", fontSize = 11.sp, color = MaterialTheme.colorScheme.secondary)
+                        if (!eligible) {
+                            Text("این پرونده ${toPersianDigits(stageCount.toString())} مرحله دارد", fontSize = 11.sp, color = MaterialTheme.colorScheme.error)
+                        }
+                        // Schedule: due date per stage from the permit issue date,
+                        // plus generation history (on device / in the system) per stage.
+                        schedule.forEach { entry ->
+                            val (localRec, serverRep) = historyByStage[entry.stage] ?: (null to null)
+                            val history = generationHistoryText(localRec, serverRep)
+                            val status = if (history.isNotBlank()) history else remainingText(entry.dueDate, today)
+                            Text(
+                                "مرحله ${stageNameForNumber(entry.stage)}: ${entry.dueDate.toPersianDigits()} ($status)",
+                                fontSize = 11.sp,
+                                color = if (history.isNotBlank() || entry.isRegistered) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        if (schedule.isEmpty()) {
+                            if (historyByStage.isEmpty()) {
+                                Text("تاریخ صدور پروانه ثبت نشده است", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            } else {
+                                historyByStage.toSortedMap().forEach { (stage, pair) ->
+                                    val history = generationHistoryText(pair.first, pair.second)
+                                    if (history.isNotBlank()) {
+                                        Text(
+                                            "مرحله ${stageNameForNumber(stage)}: $history",
+                                            fontSize = 11.sp,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
@@ -181,12 +288,20 @@ private data class GenerateResult(val files: List<File>, val message: String)
 
 private fun generateReports(context: Context, cases: List<CaseEntity>, allCases: List<CaseEntity>, engineers: List<EngineerEntity>, specs: List<SpecificationEntity>, stage: Int, useLtr: Boolean, templatesDir: File, outputsDir: File): GenerateResult {
     val files = mutableListOf<File>()
-    val stageName = when(stage) { 1 -> "اول"; 2 -> "دوم"; 3 -> "سوم"; else -> "اول" }
-    val templateFile = findTemplate(templatesDir, stageName) ?: return GenerateResult(emptyList(), "❌ فایل تمپلیت مرحله $stageName یافت نشد\nفایل‌ها را در ${templatesDir.absolutePath} قرار دهید")
+    val stageName = stageNameForNumber(stage)
+    // Template preference: "<discipline> مرحله X.docx" for the disciplines of the
+    // selected cases (taken from each case's own data, never hardcoded), then generic.
+    val disciplines = cases.map { c ->
+        c.discipline.ifBlank {
+            engineers.firstOrNull { it.caseNumber == c.caseNumber }?.discipline ?: ""
+        }
+    }.map { toPersianChars(it.trim()) }.filter { it.isNotBlank() }.distinct()
+    val templateFile = findTemplate(templatesDir, stageName, disciplines) ?: return GenerateResult(emptyList(), "❌ فایل تمپلیت مرحله $stageName یافت نشد\nفایل‌ها را در ${templatesDir.absolutePath} قرار دهید")
 
     outputsDir.mkdirs()
     val now = Date()
     val persianDate = toPersianDate(now).replace("/", "-") // Fix: replace / with -
+    val timeNow = SimpleDateFormat("HH:mm", Locale.US).format(now)
     val englishDate = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(now)
     var count = 0
 
@@ -217,7 +332,7 @@ private fun generateReports(context: Context, cases: List<CaseEntity>, allCases:
             // Save to history
             saveReportHistory(context, listOf(GeneratedReportRecord(
                 caseNumber = case.caseNumber, owner = case.owner, stage = stage,
-                createdAt = persianDate, filePath = outputFile.absolutePath,
+                createdAt = persianDate, createdTime = timeNow, filePath = outputFile.absolutePath,
                 folderPath = folder.absolutePath, fileExists = true
             )))
         } catch (e: Exception) { return GenerateResult(files, "❌ خطا: ${case.owner}: ${e.message}") }
@@ -225,9 +340,10 @@ private fun generateReports(context: Context, cases: List<CaseEntity>, allCases:
     return GenerateResult(files, "✅ $count گزارش مرحله $stageName تولید شد\n📁 ${outputsDir.absolutePath}")
 }
 
-private fun findTemplate(templatesDir: File, stageName: String): File? {
+private fun findTemplate(templatesDir: File, stageName: String, disciplines: List<String> = emptyList()): File? {
     if (!templatesDir.exists()) return null
-    for (p in listOf("مکانیک مرحله $stageName.docx", "مرحله $stageName.docx")) { val f = File(templatesDir, p); if (f.exists()) return f }
+    val candidates = disciplines.map { "$it مرحله $stageName.docx" } + "مرحله $stageName.docx"
+    for (p in candidates) { val f = File(templatesDir, p); if (f.exists()) return f }
     return templatesDir.listFiles { f -> f.name.endsWith(".docx") }?.firstOrNull { it.name.contains(stageName) }
 }
 
@@ -272,6 +388,50 @@ private fun replaceInParagraph(para: org.apache.poi.xwpf.usermodel.XWPFParagraph
     if (runs.isNotEmpty()) { runs[0].setText(fullText, 0); for (i in 1 until runs.size) runs[i].setText("", 0) }
 }
 
+/** Resolved (building group, discipline) for a case in the report generator.
+ *  The case row itself often has both blank (the cases endpoint leaves
+ *  mas_title/bg_name empty), so fall back to the same sources the case detail
+ *  screen shows: the specification for the group, and the case's engineers,
+ *  fees or reports for the discipline. */
+private fun resolveCaseGroupDiscipline(
+    case: CaseEntity,
+    spec: SpecificationEntity?,
+    engineers: List<EngineerEntity>,
+    fees: List<FeeEntity>,
+    reports: List<ReportEntity>
+): Pair<String, String> {
+    val group = case.buildingGroup.ifBlank { spec?.buildingGroup ?: "" }
+    val disc = case.discipline.ifBlank {
+        engineers.firstOrNull { it.caseNumber == case.caseNumber }?.discipline
+            ?: fees.firstOrNull { it.caseNumber == case.caseNumber }?.discipline
+            ?: reports.firstOrNull { it.caseNumber == case.caseNumber }?.discipline
+            ?: ""
+    }
+    return group to disc
+}
+
+/** Generation history of one stage, with Shamsi dates and time when available:
+ *  "روی سیستم، تولید ۱۴۰۵/۰۸/۲۰ ساعت ۱۴:۳۰" / "در سامانه، ثبت ۱۴۰۳/۰۶/۱۵"
+ *  (both joined with " + " when the report exists in both places). "" when neither. */
+private fun generationHistoryText(localRec: GeneratedReportRecord?, serverRep: ReportEntity?): String {
+    val parts = mutableListOf<String>()
+    if (localRec != null) {
+        val date = displayShamsiDate(localRec.createdAt)
+        val time = localRec.createdTime.trim()
+        var s = "روی سیستم، تولید"
+        if (date.isNotBlank()) s += " $date"
+        if (time.isNotBlank()) s += " ساعت ${toPersianDigitsStr(time)}"
+        parts.add(s)
+    }
+    if (serverRep != null) {
+        val date = displayShamsiDate(serverRep.visitDate)
+        var s = "در سامانه، ثبت"
+        if (date.isNotBlank()) s += " $date"
+        parts.add(s)
+    }
+    return parts.joinToString(" + ")
+}
+
 // ==================== DIGIT UTILS ====================
 
 private fun toPersianDigits(input: String): String = input.replace("0","۰").replace("1","۱").replace("2","۲").replace("3","۳").replace("4","۴").replace("5","۵").replace("6","۶").replace("7","۷").replace("8","۸").replace("9","۹")
@@ -302,7 +462,7 @@ private fun toPersianDate(date: Date): String {
 
 // ==================== HISTORY ====================
 
-data class GeneratedReportRecord(val caseNumber: String = "", val owner: String = "", val stage: Int = 0, val createdAt: String = "", val filePath: String = "", val folderPath: String = "", val fileExists: Boolean = true)
+data class GeneratedReportRecord(val caseNumber: String = "", val owner: String = "", val stage: Int = 0, val createdAt: String = "", val createdTime: String = "", val filePath: String = "", val folderPath: String = "", val fileExists: Boolean = true)
 
 internal fun saveReportHistory(context: Context, records: List<GeneratedReportRecord>) {
     try { val prefs = context.getSharedPreferences("nezam_report_history", Context.MODE_PRIVATE); val existing = loadReportHistory(context).toMutableList(); existing.addAll(records); prefs.edit().putString("history", com.google.gson.Gson().toJson(existing)).apply() } catch (_: Exception) {}

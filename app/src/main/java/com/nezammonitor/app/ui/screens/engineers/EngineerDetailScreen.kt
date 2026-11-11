@@ -1,5 +1,6 @@
 package com.nezammonitor.app.ui.screens.engineers
 
+import com.nezammonitor.app.api.toPersianChars
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.clickable
@@ -55,7 +56,7 @@ fun EngineerDetailScreen(viewModel: MainViewModel, onBack: () -> Unit) {
             item {
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(16.dp)) {
-                        Text("مالک: ${case?.owner ?: ""}", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                        Text("مالک: ${toPersianChars(case?.owner ?: "")}", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                         Text("پرونده: ${case?.caseNumber ?: ""}", fontSize = 13.sp, color = MaterialTheme.colorScheme.primary)
                         if (case?.ownerMobile?.isNotBlank() == true) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -89,8 +90,8 @@ fun EngineerDetailScreen(viewModel: MainViewModel, onBack: () -> Unit) {
                         Column(modifier = Modifier.padding(14.dp)) {
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
                                 Column(modifier = Modifier.weight(1f)) {
-                                    Text(eng.name, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                                    Text("رشته: ${eng.discipline}", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(toPersianChars(eng.name), fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                                    Text("رشته: ${toPersianChars(eng.discipline)}", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     if (eng.role.isNotBlank()) Text("نقش: ${eng.role}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     if (sina != null) {
                                         Spacer(modifier = Modifier.height(4.dp))

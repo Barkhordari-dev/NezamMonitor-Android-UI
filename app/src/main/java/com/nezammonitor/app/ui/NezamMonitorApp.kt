@@ -25,6 +25,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.nezammonitor.app.BuildConfig
+import com.nezammonitor.app.R
 import com.nezammonitor.app.ui.components.NezamGradientBackground
 import com.nezammonitor.app.ui.navigation.Screen
 import com.nezammonitor.app.ui.navigation.drawerItems
@@ -63,7 +64,7 @@ fun NezamMonitorApp(viewModel: MainViewModel) {
         drawerContent = {
             ModalDrawerSheet {
                 // Branded header: diagonal gradient in the theme's accent
-                // colours, with monogram avatar, title, and status badge.
+                // colours, with logo, title, and status badge.
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -347,7 +348,7 @@ fun NezamMonitorApp(viewModel: MainViewModel) {
                         ReportGeneratorScreen(viewModel = viewModel, onBack = { navController.popBackStack() })
                     }
                     composable(Screen.ReportHistory.route) {
-                        ReportHistoryScreen(onBack = { navController.popBackStack() })
+                        ReportHistoryScreen(viewModel = viewModel, onBack = { navController.popBackStack() })
                     }
                     composable(Screen.Settings.route) {
                         SettingsScreen(viewModel = viewModel)

@@ -1,5 +1,6 @@
 package com.nezammonitor.app.ui.screens.engineers
 
+import com.nezammonitor.app.api.toPersianChars
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.clickable
@@ -86,7 +87,7 @@ fun EngineersScreen(viewModel: MainViewModel, onCaseClick: (String) -> Unit) {
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column {
-                                Text(case.owner, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                                Text(toPersianChars(case.owner), fontWeight = FontWeight.Bold, fontSize = 15.sp)
                                 Text("پرونده: ${case.caseNumber}", fontSize = 13.sp, color = MaterialTheme.colorScheme.primary)
                             }
                             Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
@@ -103,7 +104,7 @@ fun EngineersScreen(viewModel: MainViewModel, onCaseClick: (String) -> Unit) {
                             val sina = remember(eng.name) { SinaEngineerStore.findByName(context, eng.name) }
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                                 Column(modifier = Modifier.weight(1f)) {
-                                    Text("• ${eng.name} (${eng.discipline})", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text("• ${toPersianChars(eng.name)} (${toPersianChars(eng.discipline)})", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     if (sina != null) Text("  ${formatSinaLevels(sina)}", fontSize = 11.sp, color = MaterialTheme.colorScheme.secondary)
                                 }
                                 val phone = sina?.phone?.ifBlank { null } ?: eng.phone.ifBlank { null }

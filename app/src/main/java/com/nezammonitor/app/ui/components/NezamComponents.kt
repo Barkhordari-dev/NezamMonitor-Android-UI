@@ -38,6 +38,8 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import com.nezammonitor.app.api.toPersianChars
+import com.nezammonitor.app.data.FeeEntity
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -691,4 +693,117 @@ fun NezamSegmentedControl(
             }
         }
     }
+}
+
+/** Stage title as stored by the API / import may already contain the word «مرحله»
+ *  (e.g. "مرحله اول" from brt_marhale_title). Returns the bare stage name
+ *  ("اول", "دوم", ...) so callers can safely prefix "مرحله " without doubling it. */
+fun stageNameOnly(stage: String): String {
+    var s = stage.trim()
+    if (s.startsWith("مرحله")) {
+        // strip the word «مرحله» plus any space / ZWNJ (U+200C) after it
+        s = s.removePrefix("مرحله").trimStart(' ', '\u200C').trim()
+    }
+    return s
+}
+
+/** Stage number from a stored stage title: "مرحله اول" / "اول" / "1" -> 1,
+ *  ... "مرحله چهارم" / "چهارم" / "4" -> 4. 0 when unknown. */
+fun stageNumberFromTitle(stage: String): Int {
+    return when (stageNameOnly(stage).trim()) {
+        "اول", "1", "۱" -> 1
+        "دوم", "2", "۲" -> 2
+        "سوم", "3", "۳" -> 3
+        "چهارم", "4", "۴" -> 4
+        else -> 0
+    }
+}
+
+/** Amount ("23158293 ریال") -> 23158293, for sorting and totals. */
+fun parseAmount(amount: String): Long {
+    if (amount.isBlank()) return 0L
+    var c = amount.replace("ریال", "").replace(",", "").replace("٬", "").replace("،", "").replace(" ", "").trim()
+    c = c.replace("۰", "0").replace("۱", "1").replace("۲", "2").replace("۳", "3").replace("۴", "4")
+        .replace("۵", "5").replace("۶", "6").replace("۷", "7").replace("۸", "8").replace("۹", "9")
+        .replace("٠", "0").replace("١", "1").replace("٢", "2").replace("٣", "3").replace("٤", "4")
+        .replace("٥", "5").replace("٦", "6").replace("٧", "7").replace("٨", "8").replace("٩", "9")
+    return c.toLongOrNull() ?: 0L
+}
+
+/** Service type of a fee for display. Stage fees are always "نظارت"; stage-0 fees
+ *  (بیمه، حسن انجام کار، سهم سازمان، مالیات) are labeled by amount rank within
+ *  the case, largest first — the same rule Windows uses. */
+fun mappedServiceType(fee: FeeEntity, allOfCase: List<FeeEntity>): String {
+    val st = fee.stage.trim()
+    if (st != "0") return "نظارت"
+    val stage0 = allOfCase.filter { it.stage.trim() == "0" }
+    val order = arrayOf("حسن انجام کار", "نظارت سهم سازمان", "مالیات نظارت سهم سازمان", "بیمه")
+    val sorted = stage0.sortedByDescending { parseAmount(it.amount) }
+    val idx = sorted.indexOfFirst { it.id == fee.id }
+    if (idx == -1) return "بیمه"
+    return if (idx < order.size) order[idx] else order.last()
+}
+
+/** Persian display name for a fee's amount type. The stored value may be the raw
+ *  API/import code ("n"/"b"/"ho"/"t"/"pn") or an already-mapped name ("نظارت").
+ *  Blank falls back to the amount-ranked service type. */
+fun feeTypeName(fee: FeeEntity, allOfCase: List<FeeEntity>): String {
+    when (fee.amountType.trim().lowercase()) {
+        "n" -> return "نظارت"
+        "b" -> return "بیمه"
+        "ho" -> return "حسن انجام کار"
+        "t" -> return "مالیات نظارت سهم سازمان"
+        "pn" -> return "نظارت سهم سازمان"
+    }
+    val raw = fee.amountType.trim()
+    if (raw.isNotBlank()) return toPersianChars(raw)
+    return mappedServiceType(fee, allOfCase)
+}
+
+/** Display title of a fee card. The discipline always comes from the fee's own
+ *  data (its discipline field, falling back to a sibling fee of the same case) —
+ *  never a hardcoded value. Stage fees: "گزارش مرحله دوم <رشته>".
+ *  Stage-0 fees: "<type> <رشته>", e.g. "بیمه <رشته>", and never "مرحله: 0". */
+fun feeTitle(fee: FeeEntity, allOfCase: List<FeeEntity>): String {
+    val disc = toPersianChars(
+        fee.discipline.ifBlank {
+            allOfCase.firstOrNull { it.discipline.isNotBlank() }?.discipline ?: ""
+        }.trim()
+    )
+    val stage = fee.stage.trim()
+    if (stage != "0" && stage.isNotBlank()) {
+        val n = stage.toIntOrNull() ?: 0
+        val stageName = if (n in 1..4) stageNameForNumber(n) else stage
+        return "گزارش مرحله $stageName" + if (disc.isNotBlank()) " $disc" else ""
+    }
+    val type = feeTypeName(fee, allOfCase)
+    return listOf(type, disc).filter { it.isNotBlank() }.joinToString(" ")
+}
+
+/** Confirmation status for display: only "تایید شده" is a real status. Stored
+ *  values from older imports may be bare numbers (e.g. "85") — those are not
+ *  a confirmation and must not be shown as "تأیید: 85". */
+fun confirmStatusDisplay(fee: FeeEntity): String {
+    val s = fee.confirmStatus.trim()
+    return if (s == "تایید شده" || s == "1") "تایید شده" else ""
+}
+
+/** "مرحله X" label for a report card, or "" when the stage should not be shown:
+ *  the stage is blank, or the report's title already states that stage
+ *  (e.g. title "گزارش مرحله دوم" + stage "مرحله دوم" would otherwise print
+ *  the word «مرحله» twice on the same card). */
+fun reportStageLabel(reportType: String, stage: String): String {
+    val name = stageNameOnly(stage)
+    if (name.isBlank()) return ""
+    if (reportType.contains(name)) return ""
+    return "مرحله $name"
+}
+
+/** Persian ordinal name for a stage number (1 -> "اول", ..., 4 -> "چهارم"). */
+fun stageNameForNumber(n: Int): String = when (n) {
+    1 -> "اول"
+    2 -> "دوم"
+    3 -> "سوم"
+    4 -> "چهارم"
+    else -> "?"
 }

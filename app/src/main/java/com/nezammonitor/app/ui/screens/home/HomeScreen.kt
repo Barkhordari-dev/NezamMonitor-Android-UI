@@ -28,6 +28,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.nezammonitor.app.R
 import com.nezammonitor.app.data.ImportEngine
 import com.nezammonitor.app.ui.components.HeroActionCard
 import com.nezammonitor.app.ui.components.MenuLinkCard
@@ -296,7 +297,7 @@ fun HomeScreen(
             MenuLinkCard(
                 emoji = "📊",
                 title = "تولید گزارش مهندسی",
-                subtitle = "ساخت فایل Word مرحله اول/دوم/سوم با POI",
+                subtitle = "ساخت فایل Word گزارش ها",
                 onClick = onNavigateToReportGenerator,
                 modifier = Modifier.fillMaxWidth()
             )
