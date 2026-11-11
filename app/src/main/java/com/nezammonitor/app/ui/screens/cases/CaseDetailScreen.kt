@@ -22,8 +22,9 @@ import com.nezammonitor.app.data.formatSinaLevels
 import com.nezammonitor.app.ui.components.NezamLoadingState
 import com.nezammonitor.app.ui.components.SectionTitle
 import com.nezammonitor.app.api.toPersianChars
-import com.nezammonitor.app.ui.components.confirmStatusDisplay
 import com.nezammonitor.app.ui.components.feeTitle
+import com.nezammonitor.app.ui.components.formatFeeAmount
+import com.nezammonitor.app.ui.components.payStatusDisplay
 import com.nezammonitor.app.ui.components.reportStageLabel
 import com.nezammonitor.app.ui.components.stageNameOnly
 import com.nezammonitor.app.viewmodel.MainViewModel
@@ -226,10 +227,9 @@ fun CaseDetailScreen(viewModel: MainViewModel, onBack: () -> Unit) {
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 Text(feeTitle(fee, fees), fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                                Text(fee.amount, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = MaterialTheme.colorScheme.primary)
+                                Text(formatFeeAmount(fee.amount), fontWeight = FontWeight.Bold, fontSize = 14.sp, color = MaterialTheme.colorScheme.primary)
                             }
-                            val confirm = confirmStatusDisplay(fee)
-                            Text("پرداخت: ${fee.payStatus}" + if (confirm.isNotBlank()) " | تأیید: $confirm" else "", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("پرداخت: ${payStatusDisplay(fee)}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             if (fee.description.isNotBlank()) {
                                 Text("توضیحات: ${fee.description}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }

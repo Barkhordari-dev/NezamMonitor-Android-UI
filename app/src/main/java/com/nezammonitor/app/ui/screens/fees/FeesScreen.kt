@@ -23,6 +23,7 @@ import com.nezammonitor.app.ui.components.NezamSearchField
 import com.nezammonitor.app.ui.components.NezamSegmentedControl
 import com.nezammonitor.app.ui.components.feeTitle
 import com.nezammonitor.app.ui.components.parseAmount
+import com.nezammonitor.app.ui.components.payStatusDisplay
 import com.nezammonitor.app.viewmodel.MainViewModel
 
 private fun normalizeDigits(s: String): String = s
@@ -98,7 +99,7 @@ private fun FeesTab(fees: List<FeeEntity>, cases: List<com.nezammonitor.app.data
             val matchPay = when (val pf = payFilter) {
                 null -> true
                 "پرداخت" -> f.endDate.isNotBlank()
-                "تایید" -> f.payStatus == "تایید شده"
+                "تایید" -> payStatusDisplay(f) == "تایید شده"
                 else -> f.payStatus.contains(pf, true)
             }
             matchSearch && matchPay
@@ -168,7 +169,7 @@ private fun FeesTab(fees: List<FeeEntity>, cases: List<com.nezammonitor.app.data
                                 }
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                                     Text(feeTitle(fee, feesByCase[fee.caseNumber] ?: emptyList()), fontSize = 11.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.secondary)
-                                    AssistChip(onClick = {}, label = { Text(fee.payStatus.ifBlank { "—" }, fontSize = 10.sp) }, modifier = Modifier.height(22.dp))
+                                    AssistChip(onClick = {}, label = { Text(payStatusDisplay(fee), fontSize = 10.sp) }, modifier = Modifier.height(22.dp))
                                 }
                                 if (fee.startDate.isNotBlank() || fee.endDate.isNotBlank())
                                     Text("شروع: ${fee.startDate.ifBlank { "—" }}  |  پایان: ${fee.endDate.ifBlank { "—" }}", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)

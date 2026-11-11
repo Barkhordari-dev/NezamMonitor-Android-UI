@@ -12,7 +12,9 @@ data class JalaliDate(val year: Int, val month: Int, val day: Int) {
         .replace("8", "۸").replace("9", "۹")
 }
 
-private fun normalizeDigits(s: String): String = s
+/** Persian/Arabic digits to ASCII (for date sorting and search). Internal so
+ *  the history tab can normalize query and row text the same way. */
+internal fun normalizeDigits(s: String): String = s
     .replace("۰", "0").replace("۱", "1").replace("۲", "2").replace("۳", "3").replace("۴", "4")
     .replace("۵", "5").replace("۶", "6").replace("۷", "7").replace("۸", "8").replace("۹", "9")
     .replace("٠", "0").replace("١", "1").replace("٢", "2").replace("٣", "3").replace("٤", "4")

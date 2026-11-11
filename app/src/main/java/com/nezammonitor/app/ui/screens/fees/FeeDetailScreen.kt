@@ -13,8 +13,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.nezammonitor.app.ui.components.confirmStatusDisplay
 import com.nezammonitor.app.ui.components.feeTitle
+import com.nezammonitor.app.ui.components.formatFeeAmount
+import com.nezammonitor.app.ui.components.payStatusDisplay
 import com.nezammonitor.app.viewmodel.MainViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -35,12 +36,15 @@ fun FeeDetailScreen(viewModel: MainViewModel, onBack: () -> Unit) {
         }
     }
     val paidAmount = remember(fees) {
-        fees.filter { it.payStatus.contains("پرداخت") }.sumOf {
+        // Paid = has a payment (end) date — the same definition as the
+        // "پرداخت شده" filter. The old substring check on payStatus
+        // ("پرداخت") also matched "پرداخت نشده", so unpaid fees were summed.
+        fees.filter { it.endDate.isNotBlank() }.sumOf {
             it.amount.replace(Regex("[^0-9]"), "").toLongOrNull() ?: 0L
         }
     }
     val confirmedAmount = remember(fees) {
-        fees.filter { it.payStatus.contains("تایید") || it.confirmStatus.contains("تایید") }.sumOf {
+        fees.filter { payStatusDisplay(it) == "تایید شده" }.sumOf {
             it.amount.replace(Regex("[^0-9]"), "").toLongOrNull() ?: 0L
         }
     }
@@ -149,16 +153,14 @@ fun FeeDetailScreen(viewModel: MainViewModel, onBack: () -> Unit) {
                         Column(modifier = Modifier.weight(1f)) {
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                 Text(feeTitle(fee, fees), fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                                Text(fee.amount, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = MaterialTheme.colorScheme.primary)
+                                Text(formatFeeAmount(fee.amount), fontWeight = FontWeight.Bold, fontSize = 14.sp, color = MaterialTheme.colorScheme.primary)
                             }
                             Spacer(modifier = Modifier.height(2.dp))
                             if (fee.startDate.isNotBlank() || fee.endDate.isNotBlank()) {
                                 Text("تاریخ: ${fee.startDate.ifBlank { "_" }} → ${fee.endDate.ifBlank { "_" }}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text("پرداخت: ${fee.payStatus}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                val confirm = confirmStatusDisplay(fee)
-                                if (confirm.isNotBlank()) Text("تأیید: $confirm", fontSize = 11.sp, color = MaterialTheme.colorScheme.secondary)
+                                Text("پرداخت: ${payStatusDisplay(fee)}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
                     }

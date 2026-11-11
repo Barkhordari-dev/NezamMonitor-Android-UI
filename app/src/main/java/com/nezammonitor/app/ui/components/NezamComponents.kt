@@ -788,6 +788,42 @@ fun confirmStatusDisplay(fee: FeeEntity): String {
     return if (s == "تایید شده" || s == "1") "تایید شده" else ""
 }
 
+/** True when a fee is confirmed — by its payment status, or by its confirmation
+ *  field. The two fields can disagree: the API/sync stores the payment state in
+ *  payStatus (from `payed`: "yes"/"ok"/other) and the confirmation in
+ *  confirmStatus (from `selected`=="1"), so a confirmed-but-unpaid fee has
+ *  payStatus "پرداخت نشده" AND confirmStatus "تایید شده". The Windows export
+ *  also stores a bare number ("78".."85") in confirmStatus — only ever on paid
+ *  or confirmed fees — which counts as confirmed too. */
+fun isFeeConfirmed(fee: FeeEntity): Boolean {
+    if (fee.payStatus.trim() == "تایید شده") return true
+    val c = fee.confirmStatus.trim()
+    if (c == "تایید شده" || c == "1") return true
+    if (c.isNotEmpty() && c.all { it.isDigit() }) return true
+    return false
+}
+
+/** Payment status line for a fee card ("پرداخت: ..."). A confirmed fee must read
+ *  "تایید شده" here even when its payStatus says "پرداخت نشده" — the
+ *  confirmation lives in confirmStatus, and showing "پرداخت نشده" for it is
+ *  wrong. Paid stays "پرداخت شده". */
+fun payStatusDisplay(fee: FeeEntity): String {
+    if (fee.payStatus.trim() == "پرداخت شده") return "پرداخت شده"
+    if (isFeeConfirmed(fee)) return "تایید شده"
+    val s = fee.payStatus.trim()
+    return if (s.isNotBlank()) s else "پرداخت نشده"
+}
+
+/** Fee amount for display, with thousand separators ("23158293 ریال" ->
+ *  "23,158,293 ریال"). The sync stores amounts already formatted, but imported
+ *  (.nzmdata) amounts are raw digits — formatting at display keeps both
+ *  sources identical, like the fees list already does. */
+fun formatFeeAmount(raw: String): String {
+    if (raw.isBlank()) return "۰ ریال"
+    val v = parseAmount(raw)
+    return String.format(java.util.Locale.US, "%,d", v) + " ریال"
+}
+
 /** "مرحله X" label for a report card, or "" when the stage should not be shown:
  *  the stage is blank, or the report's title already states that stage
  *  (e.g. title "گزارش مرحله دوم" + stage "مرحله دوم" would otherwise print

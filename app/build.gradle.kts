@@ -12,29 +12,39 @@ android {
         applicationId = "com.nezammonitor.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 53
-        versionName = "3.7.1"
+        versionCode = 54
+        versionName = "3.7.2"
     }
 
     buildToolsVersion = "34.0.0"
 
-    signingConfigs {
-        create("release") {
-            storeFile = file("${rootDir}/release.keystore")
-            storePassword = "nezam1234"
-            keyAlias = "nezamrelease"
-            keyPassword = "nezam1234"
+    // The release keystore lives only on the developer's machine — it is NOT in
+    // the repo (and must never be committed). The CI build therefore has no
+    // keystore file: without this guard the whole build failed at configuration
+    // time ("keystore file not found"), even for assembleDebug, because the
+    // debug build type also used the release signing config. When the file is
+    // missing, fall back to the default debug keystore / unsigned release.
+    val releaseKeystoreFile = rootProject.file("release.keystore")
+    val hasReleaseKeystore = releaseKeystoreFile.exists()
+    if (hasReleaseKeystore) {
+        signingConfigs {
+            create("release") {
+                storeFile = releaseKeystoreFile
+                storePassword = "nezam1234"
+                keyAlias = "nezamrelease"
+                keyPassword = "nezam1234"
+            }
         }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
-            signingConfig = signingConfigs.getByName("release")
+            if (hasReleaseKeystore) signingConfig = signingConfigs.getByName("release")
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
         debug {
-            signingConfig = signingConfigs.getByName("release")
+            if (hasReleaseKeystore) signingConfig = signingConfigs.getByName("release")
         }
     }
 

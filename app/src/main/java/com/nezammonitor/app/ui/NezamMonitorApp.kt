@@ -40,7 +40,6 @@ import com.nezammonitor.app.ui.screens.settings.SettingsScreen
 import com.nezammonitor.app.ui.screens.export.ExportScreen
 import com.nezammonitor.app.ui.screens.update.UpdateScreen
 import com.nezammonitor.app.ui.screens.reportgen.ReportGeneratorScreen
-import com.nezammonitor.app.ui.screens.reporthistory.ReportHistoryScreen
 import com.nezammonitor.app.viewmodel.MainViewModel
 import kotlinx.coroutines.launch
 import java.net.URLDecoder
@@ -348,7 +347,9 @@ fun NezamMonitorApp(viewModel: MainViewModel) {
                         ReportGeneratorScreen(viewModel = viewModel, onBack = { navController.popBackStack() })
                     }
                     composable(Screen.ReportHistory.route) {
-                        ReportHistoryScreen(viewModel = viewModel, onBack = { navController.popBackStack() })
+                        // The history is now the second tab of the generator
+                        // (like "دریافتی‌ها" is the second tab of the fees screen).
+                        ReportGeneratorScreen(viewModel = viewModel, initialTab = 1, onBack = { navController.popBackStack() })
                     }
                     composable(Screen.Settings.route) {
                         SettingsScreen(viewModel = viewModel)
