@@ -326,7 +326,7 @@ fun SettingsScreen(viewModel: MainViewModel) {
                 Spacer(modifier = Modifier.height(8.dp))
                 Text("NezamMonitor Pro — نسخه ${toPersianDigits(BuildConfig.VERSION_NAME)} (UI Redesign)", fontSize = 14.sp, fontWeight = FontWeight.Bold)
                 Text("شناسه بسته: com.nezammonitor.app", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text("تولید و توسعه: محمد مهدی برخورداری", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("تولید و توسعه: مهندس محمد مهدی برخورداری", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text("طراحی شده برای مهندسین نظام مهندسی", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
             }
         }

@@ -134,7 +134,7 @@ fun NezamMonitorApp(viewModel: MainViewModel) {
                     }
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        "تولید و توسعه: محمد مهدی برخورداری",
+                        "تولید و توسعه: مهندس محمد مهدی برخورداری",
                         fontSize = 11.sp,
                         color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f)
                     )

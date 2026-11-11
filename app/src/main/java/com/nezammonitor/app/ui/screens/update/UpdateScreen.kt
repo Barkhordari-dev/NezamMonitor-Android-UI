@@ -7,6 +7,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
@@ -17,7 +18,11 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.autofill.AutofillNode
+import androidx.compose.ui.autofill.AutofillType
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -26,8 +31,13 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalAutofill
+import androidx.compose.ui.platform.LocalAutofillTree
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -41,7 +51,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import com.google.gson.JsonObject
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalComposeUiApi::class)
 @Composable
 fun UpdateScreen(
     onBack: () -> Unit
@@ -53,6 +63,29 @@ fun UpdateScreen(
     var username by remember { mutableStateOf(prefs.getString("username", "") ?: "") }
     var password by remember { mutableStateOf(prefs.getString("password", "") ?: "") }
     var saveCredentials by remember { mutableStateOf(prefs.getBoolean("save_creds", false)) }
+
+    // Google Password Manager (autofill): the two fields advertise
+    // themselves as username/password, so the system offers the saved login
+    // when they gain focus and offers to save it after a successful login.
+    // The app's own "ذخیره اطلاعات ورود" checkbox stays as well.
+    val usernameAutofillNode = remember {
+        AutofillNode(autofillTypes = listOf(AutofillType.Username), onFill = { username = it })
+    }
+    val passwordAutofillNode = remember {
+        AutofillNode(autofillTypes = listOf(AutofillType.Password), onFill = { password = it })
+    }
+    val autofillTree = LocalAutofillTree.current
+    val autofill = LocalAutofill.current
+    DisposableEffect(autofillTree) {
+        autofillTree += usernameAutofillNode
+        autofillTree += passwordAutofillNode
+        onDispose {
+            // AutofillTree in this Compose version has plusAssign but no
+            // minusAssign — remove the nodes from its children map directly.
+            (autofillTree.children as? MutableMap<Int, AutofillNode>)?.remove(usernameAutofillNode.id)
+            (autofillTree.children as? MutableMap<Int, AutofillNode>)?.remove(passwordAutofillNode.id)
+        }
+    }
     var isUpdating by remember { mutableStateOf(false) }
     var statusText by remember { mutableStateOf("") }
     var progress by remember { mutableFloatStateOf(0f) }
@@ -101,7 +134,13 @@ fun UpdateScreen(
                 onValueChange = { username = it },
                 label = { Text("شماره عضویت") },
                 leadingIcon = { Icon(Icons.Default.Person, contentDescription = null) },
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .onGloballyPositioned { usernameAutofillNode.boundingBox = it.boundsInWindow() }
+                    .onFocusChanged { state ->
+                        if (state.isFocused) autofill?.requestAutofillForNode(usernameAutofillNode)
+                        else autofill?.cancelAutofillForNode(usernameAutofillNode)
+                    },
                 singleLine = true,
                 shape = MaterialTheme.shapes.large
             )
@@ -111,10 +150,17 @@ fun UpdateScreen(
                 onValueChange = { password = it },
                 label = { Text("رمز عبور") },
                 leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .onGloballyPositioned { passwordAutofillNode.boundingBox = it.boundsInWindow() }
+                    .onFocusChanged { state ->
+                        if (state.isFocused) autofill?.requestAutofillForNode(passwordAutofillNode)
+                        else autofill?.cancelAutofillForNode(passwordAutofillNode)
+                    },
                 singleLine = true,
                 shape = MaterialTheme.shapes.large,
-                visualTransformation = PasswordVisualTransformation()
+                visualTransformation = PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
             )
 
             Row(
