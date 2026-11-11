@@ -40,6 +40,5 @@ val drawerItems = listOf(
     Screen.FollowUp,
     Screen.Receipts,
     Screen.ReportGenerator,
-    Screen.ReportHistory,
     Screen.Settings
 )

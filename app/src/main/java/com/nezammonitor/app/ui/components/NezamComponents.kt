@@ -843,3 +843,14 @@ fun stageNameForNumber(n: Int): String = when (n) {
     4 -> "چهارم"
     else -> "?"
 }
+
+/** Comparison key for a person's name: Persian script, no ZWNJ, no spaces at
+ *  all. The API returns the user's name spaced ("محمد مهدی برخورداری") while
+ *  the reports/engineers store it joined ("محمدمهدي برخورداري") — comparing
+ *  the spaced forms never matches, so the own-reports filter (and the role
+ *  derivation) silently failed. Use this key for COMPARISONS only; display
+ *  keeps the spaced form. */
+fun personNameKey(s: String): String = s.trim()
+    .replace('ي', 'ی').replace('ك', 'ک')
+    .replace("\u200C", "")
+    .replace(Regex("\\s+"), "")

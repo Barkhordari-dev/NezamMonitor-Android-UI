@@ -4,6 +4,8 @@ import android.content.Context
 import android.content.Intent
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -22,8 +24,8 @@ import com.nezammonitor.app.api.NezamApi
 import com.nezammonitor.app.api.toPersianChars
 import com.nezammonitor.app.data.*
 import com.nezammonitor.app.ui.components.NezamEmptyState
-import com.nezammonitor.app.ui.components.NezamSearchField
 import com.nezammonitor.app.ui.components.SectionTitle
+import com.nezammonitor.app.ui.components.personNameKey
 import com.nezammonitor.app.ui.components.reportStageLabel
 import com.nezammonitor.app.ui.components.stageNameForNumber
 import com.nezammonitor.app.ui.components.stageNumberFromTitle
@@ -38,7 +40,7 @@ import java.util.*
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ReportGeneratorScreen(viewModel: MainViewModel, initialTab: Int = 0, onBack: () -> Unit) {
+fun ReportGeneratorScreen(viewModel: MainViewModel, initialTab: Int = 0, onBack: () -> Unit, onNavigateToUpdate: () -> Unit = {}) {
     val context = LocalContext.current
     val cases by viewModel.cases.collectAsState()
     val engineers by viewModel.engineers.collectAsState()
@@ -47,14 +49,37 @@ fun ReportGeneratorScreen(viewModel: MainViewModel, initialTab: Int = 0, onBack:
     val reports by viewModel.reports.collectAsState()
     val scope = rememberCoroutineScope()
     val today = remember { todayJalali() }
-    // The "سابقه گزارش‌ها" drawer item opens this screen on the history tab,
-    // like "دریافتی‌ها" opens the fees screen on its second tab.
+    // The Home card "سابقه گزارش‌ها" opens this screen on the history tab,
+    // like "دریافتی‌ها" opens the fees screen on its second tab. There is no
+    // separate drawer item for the history anymore — it lives only here.
     var activeTab by remember { mutableStateOf(initialTab) }
     LaunchedEffect(initialTab) { activeTab = initialTab }
     // Logged-in user, for the own-reports filter: the server returns every
     // engineer's reports for a case, but the history must show only this
     // user's own reports.
     val userName by viewModel.userName.collectAsState()
+    // If the name was never saved (logged in before 3.6.1, or only imported
+    // .nzmdata since), the own-reports filter has no identity and shows
+    // everybody's reports. Fetch it once from the API with the saved
+    // credentials so the history filters itself; if there are no saved
+    // credentials the history tab shows a hint instead.
+    var nameFetchTried by remember { mutableStateOf(false) }
+    LaunchedEffect(userName) {
+        if (userName.isBlank() && !nameFetchTried) {
+            nameFetchTried = true
+            val updatePrefs = context.getSharedPreferences("nezam_update", Context.MODE_PRIVATE)
+            val savedUser = updatePrefs.getString("username", "") ?: ""
+            val savedPass = updatePrefs.getString("password", "") ?: ""
+            if (updatePrefs.getBoolean("save_creds", false) && savedUser.isNotBlank() && savedPass.isNotBlank()) {
+                val api = NezamApi()
+                val res = withContext(Dispatchers.IO) { api.login(savedUser, savedPass) }
+                if (res.isSuccess && api.userName.isNotBlank()) {
+                    context.getSharedPreferences("nezam_settings", Context.MODE_PRIVATE)
+                        .edit().putString("api_user_name", api.userName).apply()
+                }
+            }
+        }
+    }
     // Stage 4 exists only if at least one case needs it (groups ب/ج/د by discipline),
     // using the same resolved group/discipline as the case rows below.
     val anyFourStage = remember(cases, specs, engineers, fees, reports) {
@@ -309,6 +334,7 @@ fun ReportGeneratorScreen(viewModel: MainViewModel, initialTab: Int = 0, onBack:
                     localHistory = localHistory,
                     onHistoryChanged = { localHistory = it },
                     userName = userName,
+                    onNavigateToUpdate = onNavigateToUpdate,
                     modifier = Modifier.weight(1f)
                 )
             }
@@ -422,22 +448,19 @@ private fun replaceInParagraph(para: org.apache.poi.xwpf.usermodel.XWPFParagraph
     if (runs.isNotEmpty()) { runs[0].setText(fullText, 0); for (i in 1 until runs.size) runs[i].setText("", 0) }
 }
 
-/** Name comparison across API/import spellings: Persian script, no ZWNJ,
- *  single spaces — the same normalization MainViewModel uses to derive the
- *  user's role from the synced engineers. */
-internal fun normalizePersonName(s: String): String = s.trim()
-    .replace('ي', 'ی').replace('ك', 'ک')
-    .replace("\u200C", "")
-    .replace(Regex("\\s+"), " ")
-
 /** True when a server report was written by the current user (by engineer
  *  name). The server returns every engineer's reports for a case, so without
  *  this filter the history shows other engineers' reports too. When the
- *  user's identity is unknown (never logged in), nothing is filtered out. */
+ *  user's identity is unknown (never logged in), nothing is filtered out.
+ *  Names are compared with personNameKey (spaces removed): the API returns
+ *  the user spaced ("محمد مهدی برخورداری") while reports store it joined
+ *  ("محمدمهدي برخورداري") — the spaced comparison never matched, so the
+ *  user's own reports were excluded (and with a blank name, everything
+ *  showed). */
 internal fun isOwnServerReport(report: ReportEntity, userName: String): Boolean {
-    val target = normalizePersonName(userName)
+    val target = personNameKey(userName)
     if (target.isEmpty()) return true
-    val eng = normalizePersonName(report.engineer)
+    val eng = personNameKey(report.engineer)
     if (eng.isEmpty()) return false
     return eng == target || (target.length >= 5 && (eng.contains(target) || target.contains(eng)))
 }
@@ -516,16 +539,16 @@ private fun mimeFor(fileName: String): String = when (fileName.substringAfterLas
  *  generated on this device, plus their own reports registered in the system.
  *  Server reports are filtered to the logged-in user — the server returns
  *  every engineer's reports for a case, and the other engineers' reports must
- *  not appear here. Search + source/stage chips filter on the displayed info
- *  (owner, case number, report type, engineer, discipline, date), like the
- *  fees list. */
-@OptIn(ExperimentalMaterial3Api::class)
+ *  not appear here. Filters are selection-only (a filter button opens the
+ *  filter page); nothing is typed. */
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 private fun HistoryTab(
     viewModel: MainViewModel,
     localHistory: List<GeneratedReportRecord>,
     onHistoryChanged: (List<GeneratedReportRecord>) -> Unit,
     userName: String,
+    onNavigateToUpdate: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -534,9 +557,16 @@ private fun HistoryTab(
     val cases by viewModel.cases.collectAsState()
     val ownerByCase = remember(cases) { cases.associate { it.caseNumber to it.owner } }
 
-    var searchQuery by remember { mutableStateOf("") }
+    // Selection filters (no typing): source + stage + engineer + discipline +
+    // owner + date. All are chosen from the filter page (dialog) that opens
+    // with the "فیلتر" button.
     var filterStage by remember { mutableIntStateOf(0) }
     var filterSource by remember { mutableIntStateOf(0) } // 0 همه، 1 در سامانه، 2 روی سیستم
+    var filterEngineer by remember { mutableStateOf<String?>(null) }
+    var filterDiscipline by remember { mutableStateOf<String?>(null) }
+    var filterOwner by remember { mutableStateOf<String?>(null) }
+    var filterDate by remember { mutableStateOf<String?>(null) }
+    var showFilterDialog by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableIntStateOf(-1) }
     var downloadingId by remember { mutableStateOf<Long?>(null) }
     var downloadError by remember { mutableStateOf("") }
@@ -551,21 +581,33 @@ private fun HistoryTab(
             .map { HistoryItem.Server(it, ownerByCase[it.caseNumber] ?: "") }
         (local + server).sortedByDescending { normalizeDigits(it.date).filter { c -> c.isDigit() } }
     }
-    // Search text of one row: everything the row displays, normalized
-    // (Persian script + ASCII digits) so Arabic-script data and Persian-digit
-    // queries match.
-    fun searchText(item: HistoryItem): String = when (item) {
-        is HistoryItem.Local -> listOf(
-            item.record.owner, item.record.caseNumber,
-            "مرحله ${stageNameForNumber(item.record.stage)}",
-            item.record.createdAt, item.record.createdTime, "روی سیستم"
-        ).joinToString(" ")
-        is HistoryItem.Server -> listOf(
-            item.owner, item.report.caseNumber, item.report.reportType,
-            item.report.engineer, item.report.discipline, item.report.visitDate,
-            "در سامانه"
-        ).joinToString(" ")
+    // Discipline of a case's local reports, from its server reports (local
+    // records carry no discipline of their own).
+    val disciplineByCase = remember(serverReports) {
+        serverReports.groupBy { it.caseNumber }
+            .mapValues { (_, reps) -> reps.firstOrNull()?.discipline ?: "" }
     }
+    fun engineerOf(item: HistoryItem): String = when (item) {
+        is HistoryItem.Local -> userName
+        is HistoryItem.Server -> item.report.engineer
+    }
+    fun disciplineOf(item: HistoryItem): String = when (item) {
+        is HistoryItem.Local -> disciplineByCase[item.record.caseNumber] ?: ""
+        is HistoryItem.Server -> item.report.discipline
+    }
+    fun ownerOf(item: HistoryItem): String = when (item) {
+        is HistoryItem.Local -> item.record.owner
+        is HistoryItem.Server -> item.owner
+    }
+    fun dateOf(item: HistoryItem): String = when (item) {
+        is HistoryItem.Local -> item.record.createdAt
+        is HistoryItem.Server -> item.report.visitDate
+    }
+    // Distinct values for the selection filters, from the user's own items.
+    val engineerOptions = remember(items) { items.map { engineerOf(it) }.filter { it.isNotBlank() }.distinct().sorted() }
+    val disciplineOptions = remember(items) { items.map { disciplineOf(it) }.filter { it.isNotBlank() }.distinct().sorted() }
+    val ownerOptions = remember(items) { items.map { ownerOf(it) }.filter { it.isNotBlank() }.distinct().sorted() }
+    val dateOptions = remember(items) { items.map { dateOf(it) }.filter { it.isNotBlank() }.distinct().sortedDescending() }
     val filteredItems = items.filter { item ->
         (filterStage == 0 || item.stageNum == filterStage) &&
             when (filterSource) {
@@ -573,10 +615,23 @@ private fun HistoryTab(
                 2 -> item is HistoryItem.Local
                 else -> true
             } &&
-            run {
-                val q = normalizeDigits(toPersianChars(searchQuery.trim()))
-                q.isBlank() || normalizeDigits(toPersianChars(searchText(item))).contains(q)
-            }
+            (filterEngineer == null || personNameKey(engineerOf(item)) == personNameKey(filterEngineer ?: "")) &&
+            (filterDiscipline == null || toPersianChars(disciplineOf(item)) == toPersianChars(filterDiscipline ?: "")) &&
+            (filterOwner == null || ownerOf(item) == filterOwner) &&
+            (filterDate == null || dateOf(item) == filterDate)
+    }
+    val activeFilterCount = listOf(
+        filterSource != 0, filterStage != 0,
+        filterEngineer != null, filterDiscipline != null,
+        filterOwner != null, filterDate != null
+    ).count { it }
+    fun clearAllFilters() {
+        filterSource = 0
+        filterStage = 0
+        filterEngineer = null
+        filterDiscipline = null
+        filterOwner = null
+        filterDate = null
     }
 
     val serverCount = items.count { it is HistoryItem.Server }
@@ -623,14 +678,86 @@ private fun HistoryTab(
         modifier = modifier.padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        // Search + filters (same pattern as the fees list)
+        // Whose reports these are — the history shows only the logged-in
+        // user's reports. When the name is unknown, nothing is filtered out,
+        // so say so plainly instead of silently showing everybody's reports.
         item {
-            NezamSearchField(
-                value = searchQuery,
-                onValueChange = { searchQuery = it },
-                modifier = Modifier.fillMaxWidth(),
-                placeholder = "جستجو: مالک / پرونده / نوع گزارش / مهندس / رشته / تاریخ ..."
-            )
+            if (userName.isBlank()) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text("⚠️ نام شما ثبت نشده است", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        Text(
+                            "سابقه در حال حاضر گزارش‌های همهٔ مهندسین را نشان می‌دهد. برای اینکه فقط گزارش‌های خودتان نمایش داده شود، یک‌بار از منوی بروزرسانی وارد شوید.",
+                            fontSize = 12.sp
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Button(onClick = onNavigateToUpdate, modifier = Modifier.fillMaxWidth()) {
+                            Text("رفتن به بروزرسانی و ورود", fontSize = 13.sp)
+                        }
+                    }
+                }
+            } else {
+                Text(
+                    "گزارش‌های: ${toPersianChars(userName)}",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+
+        // Filter button (opens the filter page) + clear-all
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Button(onClick = { showFilterDialog = true }, modifier = Modifier.weight(1f)) {
+                    Text(if (activeFilterCount > 0) "🔍 فیلتر ($activeFilterCount)" else "🔍 فیلتر", fontSize = 13.sp)
+                }
+                if (activeFilterCount > 0) {
+                    OutlinedButton(onClick = { clearAllFilters() }) {
+                        Text("پاک کردن", fontSize = 13.sp)
+                    }
+                }
+            }
+        }
+
+        // Active filters, each removable on its own
+        if (activeFilterCount > 0) {
+            item {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    if (filterSource != 0) FilterChip(
+                        selected = true,
+                        onClick = { filterSource = 0 },
+                        label = { Text(if (filterSource == 1) "در سامانه ✕" else "روی سیستم ✕", fontSize = 11.sp) }
+                    )
+                    if (filterStage != 0) FilterChip(
+                        selected = true,
+                        onClick = { filterStage = 0 },
+                        label = { Text("مرحله ${stageNameForNumber(filterStage)} ✕", fontSize = 11.sp) }
+                    )
+                    if (filterEngineer != null) FilterChip(
+                        selected = true,
+                        onClick = { filterEngineer = null },
+                        label = { Text("مهندس: ${toPersianChars(filterEngineer ?: "")} ✕", fontSize = 11.sp) }
+                    )
+                    if (filterDiscipline != null) FilterChip(
+                        selected = true,
+                        onClick = { filterDiscipline = null },
+                        label = { Text("رشته: ${toPersianChars(filterDiscipline ?: "")} ✕", fontSize = 11.sp) }
+                    )
+                    if (filterOwner != null) FilterChip(
+                        selected = true,
+                        onClick = { filterOwner = null },
+                        label = { Text("مالک: ${toPersianChars(filterOwner ?: "")} ✕", fontSize = 11.sp) }
+                    )
+                    if (filterDate != null) FilterChip(
+                        selected = true,
+                        onClick = { filterDate = null },
+                        label = { Text("تاریخ: ${toPersianDigitsStr(filterDate ?: "")} ✕", fontSize = 11.sp) }
+                    )
+                }
+            }
         }
 
         // Stats: total / in system / on device
@@ -667,32 +794,6 @@ private fun HistoryTab(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text("🔄 بروزرسانی وضعیت")
-            }
-        }
-
-        // Source filter
-        item {
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                listOf(0 to "همه", 1 to "در سامانه", 2 to "روی سیستم").forEach { (num, name) ->
-                    FilterChip(
-                        selected = filterSource == num,
-                        onClick = { filterSource = num },
-                        label = { Text(name, fontSize = 12.sp) }
-                    )
-                }
-            }
-        }
-
-        // Stage filter
-        item {
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                listOf(0 to "همه مراحل", 1 to "مرحله اول", 2 to "مرحله دوم", 3 to "مرحله سوم", 4 to "مرحله چهارم").forEach { (num, name) ->
-                    FilterChip(
-                        selected = filterStage == num,
-                        onClick = { filterStage = num },
-                        label = { Text(name, fontSize = 12.sp) }
-                    )
-                }
             }
         }
 
@@ -847,6 +948,153 @@ private fun HistoryTab(
                 TextButton(onClick = { showDeleteConfirm = -1 }) { Text("لغو") }
             }
         )
+    }
+
+    // Filter page (dialog): every filter as a selection
+    if (showFilterDialog) {
+        HistoryFilterDialog(
+            source = filterSource,
+            stage = filterStage,
+            engineer = filterEngineer,
+            discipline = filterDiscipline,
+            owner = filterOwner,
+            date = filterDate,
+            engineerOptions = engineerOptions,
+            disciplineOptions = disciplineOptions,
+            ownerOptions = ownerOptions,
+            dateOptions = dateOptions,
+            onApply = { s, st, e, d, o, dt ->
+                filterSource = s
+                filterStage = st
+                filterEngineer = e
+                filterDiscipline = d
+                filterOwner = o
+                filterDate = dt
+                showFilterDialog = false
+            },
+            onDismiss = { showFilterDialog = false }
+        )
+    }
+}
+
+/** The history filter page: every filter as a selection — source and stage
+ *  as chips, engineer / discipline / owner / date as dropdowns built from
+ *  the values actually in the history. Draft state lives inside the dialog;
+ *  nothing changes until "اعمال فیلتر". */
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@Composable
+private fun HistoryFilterDialog(
+    source: Int,
+    stage: Int,
+    engineer: String?,
+    discipline: String?,
+    owner: String?,
+    date: String?,
+    engineerOptions: List<String>,
+    disciplineOptions: List<String>,
+    ownerOptions: List<String>,
+    dateOptions: List<String>,
+    onApply: (source: Int, stage: Int, engineer: String?, discipline: String?, owner: String?, date: String?) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var draftSource by remember { mutableIntStateOf(source) }
+    var draftStage by remember { mutableIntStateOf(stage) }
+    var draftEngineer by remember { mutableStateOf(engineer) }
+    var draftDiscipline by remember { mutableStateOf(discipline) }
+    var draftOwner by remember { mutableStateOf(owner) }
+    var draftDate by remember { mutableStateOf(date) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("فیلتر سابقه گزارش‌ها", fontSize = 16.sp, fontWeight = FontWeight.Bold) },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text("منبع", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf(0 to "همه", 1 to "در سامانه", 2 to "روی سیستم").forEach { (num, name) ->
+                        FilterChip(
+                            selected = draftSource == num,
+                            onClick = { draftSource = num },
+                            label = { Text(name, fontSize = 12.sp) }
+                        )
+                    }
+                }
+                Text("مرحله", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf(0 to "همه مراحل", 1 to "مرحله اول", 2 to "مرحله دوم", 3 to "مرحله سوم", 4 to "مرحله چهارم").forEach { (num, name) ->
+                        FilterChip(
+                            selected = draftStage == num,
+                            onClick = { draftStage = num },
+                            label = { Text(name, fontSize = 12.sp) }
+                        )
+                    }
+                }
+                FilterDropdown(label = "مهندس", value = draftEngineer, options = engineerOptions, onSelect = { draftEngineer = it })
+                FilterDropdown(label = "رشته", value = draftDiscipline, options = disciplineOptions, onSelect = { draftDiscipline = it })
+                FilterDropdown(label = "مالک", value = draftOwner, options = ownerOptions, onSelect = { draftOwner = it })
+                FilterDropdown(label = "تاریخ", value = draftDate, options = dateOptions, onSelect = { draftDate = it }, displayValue = { toPersianDigitsStr(it) })
+                OutlinedButton(
+                    onClick = {
+                        draftSource = 0
+                        draftStage = 0
+                        draftEngineer = null
+                        draftDiscipline = null
+                        draftOwner = null
+                        draftDate = null
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("پاک کردن همهٔ فیلترها", fontSize = 13.sp)
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                onApply(draftSource, draftStage, draftEngineer, draftDiscipline, draftOwner, draftDate)
+            }) { Text("اعمال فیلتر") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("انصراف") }
+        }
+    )
+}
+
+/** One dropdown row of the filter page: the value is chosen from the list,
+ *  never typed. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun FilterDropdown(
+    label: String,
+    value: String?,
+    options: List<String>,
+    onSelect: (String?) -> Unit,
+    displayValue: (String) -> String = { toPersianChars(it) }
+) {
+    var expanded by remember { mutableStateOf(false) }
+    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
+        OutlinedTextField(
+            value = value?.let { displayValue(it) } ?: "همه",
+            onValueChange = {},
+            readOnly = true,
+            label = { Text(label, fontSize = 12.sp) },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            modifier = Modifier.menuAnchor().fillMaxWidth(),
+            singleLine = true
+        )
+        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenuItem(
+                text = { Text("همه", fontSize = 13.sp) },
+                onClick = { onSelect(null); expanded = false }
+            )
+            options.forEach { opt ->
+                DropdownMenuItem(
+                    text = { Text(displayValue(opt), fontSize = 13.sp) },
+                    onClick = { onSelect(opt); expanded = false }
+                )
+            }
+        }
     }
 }
 

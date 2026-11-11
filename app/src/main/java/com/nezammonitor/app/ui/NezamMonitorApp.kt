@@ -179,7 +179,8 @@ fun NezamMonitorApp(viewModel: MainViewModel) {
                         title = {
                             Column {
                                 Text(
-                                    drawerItems.firstOrNull { it.route == currentRoute }?.title ?: "مانیتورینگ نظام مهندسی",
+                                    drawerItems.firstOrNull { it.route == currentRoute }?.title
+                                        ?: if (currentRoute == Screen.ReportHistory.route) "تولید گزارش" else "مانیتورینگ نظام مهندسی",
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 16.sp
                                 )
@@ -344,12 +345,21 @@ fun NezamMonitorApp(viewModel: MainViewModel) {
                         FeesScreen(viewModel = viewModel, initialTab = 1)
                     }
                     composable(Screen.ReportGenerator.route) {
-                        ReportGeneratorScreen(viewModel = viewModel, onBack = { navController.popBackStack() })
+                        ReportGeneratorScreen(
+                            viewModel = viewModel,
+                            onBack = { navController.popBackStack() },
+                            onNavigateToUpdate = { navController.navigate(Screen.Update.route) }
+                        )
                     }
                     composable(Screen.ReportHistory.route) {
                         // The history is now the second tab of the generator
                         // (like "دریافتی‌ها" is the second tab of the fees screen).
-                        ReportGeneratorScreen(viewModel = viewModel, initialTab = 1, onBack = { navController.popBackStack() })
+                        ReportGeneratorScreen(
+                            viewModel = viewModel,
+                            initialTab = 1,
+                            onBack = { navController.popBackStack() },
+                            onNavigateToUpdate = { navController.navigate(Screen.Update.route) }
+                        )
                     }
                     composable(Screen.Settings.route) {
                         SettingsScreen(viewModel = viewModel)

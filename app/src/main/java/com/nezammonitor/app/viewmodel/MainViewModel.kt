@@ -7,6 +7,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.nezammonitor.app.api.toPersianChars
 import com.nezammonitor.app.data.*
+import com.nezammonitor.app.ui.components.personNameKey
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
@@ -106,21 +107,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun deriveUserRole(engineers: List<EngineerEntity>, userName: String): String {
-        val target = normalizeName(userName)
+        val target = personNameKey(userName)
         if (target.isEmpty()) return ""
         val match = engineers.firstOrNull { eng ->
-            val n = normalizeName(eng.name)
+            val n = personNameKey(eng.name)
             n.isNotEmpty() && (n == target ||
                 (target.length >= 5 && (n.contains(target) || target.contains(n))))
         } ?: return ""
         return listOf(match.role, match.discipline)
             .map { it.trim() }.filter { it.isNotEmpty() }.joinToString(" ")
     }
-
-    private fun normalizeName(s: String): String = s.trim()
-        .replace('ي', 'ی').replace('ك', 'ک')
-        .replace("\u200C", "")
-        .replace(Regex("\\s+"), " ")
 
     private fun loadAllData() {
         viewModelScope.launch {
