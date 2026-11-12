@@ -17,6 +17,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -65,7 +66,11 @@ fun NezamMonitorApp(viewModel: MainViewModel) {
     // Logged-in user, from the API (MainViewModel). Blank = never logged in.
     val userName by viewModel.userName.collectAsState()
     val userRole by viewModel.userRole.collectAsState()
-    val displayName = userName.ifBlank { "کاربر گرامی" }
+    // Hidden-menu customisation (v3.8.5): a display-name override replaces
+    // the API name wherever it is shown; blank = use the real name.
+    val context = LocalContext.current
+    val shownName = UiCustomization.displayNameOverride(context).ifBlank { userName }
+    val displayName = shownName.ifBlank { "کاربر گرامی" }
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -99,8 +104,10 @@ fun NezamMonitorApp(viewModel: MainViewModel) {
                         ) {
                             // App icon in the middle of the circle (replaces
                             // the user monogram that used to be here).
+                            // Hidden-menu customisation (v3.8.5): follows the
+                            // chosen launcher icon.
                             Image(
-                                painter = painterResource(id = R.mipmap.ic_launcher),
+                                painter = painterResource(id = UiCustomization.launcherIconRes(context)),
                                 contentDescription = "آیکون برنامه",
                                 contentScale = ContentScale.Crop,
                                 modifier = Modifier.fillMaxSize()
@@ -108,7 +115,7 @@ fun NezamMonitorApp(viewModel: MainViewModel) {
                         }
                         Column {
                             Text(
-                                "مانیتورینگ نظام مهندسی",
+                                UiCustomization.drawerTitle(context),
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 16.sp,
                                 color = MaterialTheme.colorScheme.onPrimary
@@ -152,10 +159,13 @@ fun NezamMonitorApp(viewModel: MainViewModel) {
                 }
                 Spacer(modifier = Modifier.height(8.dp))
                 Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                    drawerItems.forEach { screen ->
+                    // Hidden-menu customisation (v3.8.5): titles, emojis and
+                    // visibility come from UiCustomization; hidden items are
+                    // filtered out of the drawer (the bottom bar is untouched).
+                    drawerItems.filter { UiCustomization.isMenuVisible(context, it) }.forEach { screen ->
                         NavigationDrawerItem(
-                            icon = { Text(screen.icon, fontSize = 20.sp) },
-                            label = { Text(screen.title, fontSize = 14.sp, fontWeight = if (currentRoute == screen.route) FontWeight.Bold else FontWeight.Normal) },
+                            icon = { Text(UiCustomization.menuIcon(context, screen), fontSize = 20.sp) },
+                            label = { Text(UiCustomization.menuTitle(context, screen), fontSize = 14.sp, fontWeight = if (currentRoute == screen.route) FontWeight.Bold else FontWeight.Normal) },
                             selected = currentRoute == screen.route,
                             onClick = {
                                 scope.launch { drawerState.close() }
@@ -190,13 +200,13 @@ fun NezamMonitorApp(viewModel: MainViewModel) {
                         title = {
                             Column {
                                 Text(
-                                    drawerItems.firstOrNull { it.route == currentRoute }?.title
-                                        ?: if (currentRoute == Screen.ReportHistory.route) "تولید گزارش" else "مانیتورینگ نظام مهندسی",
+                                    drawerItems.firstOrNull { it.route == currentRoute }?.let { UiCustomization.menuTitle(context, it) }
+                                        ?: if (currentRoute == Screen.ReportHistory.route) "تولید گزارش" else UiCustomization.drawerTitle(context),
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 16.sp
                                 )
-                                if (userName.isNotBlank()) {
-                                    Text(userName, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                if (shownName.isNotBlank()) {
+                                    Text(shownName, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                             }
                         },

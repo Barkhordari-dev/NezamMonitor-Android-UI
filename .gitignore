@@ -52,3 +52,8 @@ browser_data/
 # B Nazanin fonts: decoded at build time from fonts-src/*.b64 (see the
 # decodeFonts task in app/build.gradle.kts) — never commit the binaries.
 app/src/main/assets/fonts/*.ttf
+
+# Launcher icon variants (v3.8.5, generated at build time, never committed)
+app/src/main/res/mipmap-hdpi/ic_launcher_green.png
+app/src/main/res/mipmap-hdpi/ic_launcher_gold.png
+app/src/main/res/mipmap-hdpi/ic_launcher_dark.png

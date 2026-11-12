@@ -28,6 +28,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import com.nezammonitor.app.ui.UiCustomization
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -67,6 +68,8 @@ fun HomeScreen(
     val importResult by viewModel.importResult.collectAsState()
     // Logged-in user, from the API (MainViewModel). Blank = never logged in.
     val userName by viewModel.userName.collectAsState()
+    // Hidden-menu customisation (v3.8.5): display-name override (blank = real name).
+    val shownName = UiCustomization.displayNameOverride(context).ifBlank { userName }
     val isImporting by viewModel.isImporting.collectAsState()
 
     val coroutineScope = rememberCoroutineScope()
@@ -136,7 +139,7 @@ fun HomeScreen(
                         Column(modifier = Modifier.weight(1f)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
-                                    "خوش آمدید",
+                                    UiCustomization.homeGreeting(context),
                                     fontSize = 13.sp,
                                     color = MaterialTheme.colorScheme.primary,
                                     fontWeight = FontWeight.SemiBold
@@ -149,7 +152,7 @@ fun HomeScreen(
                                         .padding(horizontal = 6.dp, vertical = 2.dp)
                                 ) {
                                     Text(
-                                        "ناظر فعال یزد",
+                                        UiCustomization.homeBadge(context),
                                         fontSize = 10.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = MaterialTheme.colorScheme.primary
@@ -158,13 +161,13 @@ fun HomeScreen(
                             }
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                userName.ifBlank { "کاربر گرامی" },
+                                shownName.ifBlank { "کاربر گرامی" },
                                 fontSize = 18.sp,
                                 fontWeight = FontWeight.ExtraBold
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                "سامانه جامع پایش پرونده‌ها و خدمات نظارت",
+                                UiCustomization.homeSubtitle(context),
                                 fontSize = 12.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -177,8 +180,9 @@ fun HomeScreen(
                         }
 
                         // App icon (the launcher icon) instead of the "MB" monogram.
+                        // Hidden-menu customisation (v3.8.5): follows the chosen launcher icon.
                         Image(
-                            painter = painterResource(id = R.mipmap.ic_launcher),
+                            painter = painterResource(id = UiCustomization.launcherIconRes(context)),
                             contentDescription = "آیکون برنامه",
                             contentScale = ContentScale.Crop,
                             modifier = Modifier

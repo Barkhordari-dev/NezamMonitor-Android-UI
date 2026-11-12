@@ -171,6 +171,9 @@ interface NezamDao {
     @Delete
     suspend fun deleteOverride(override: HiddenOverrideEntity)
 
+    @Query("DELETE FROM hidden_overrides")
+    suspend fun deleteAllOverrides()
+
     @Query("DELETE FROM hidden_overrides WHERE tableName = :table AND recordKey = :recordKey AND fieldName = :field")
     suspend fun deleteOverrideByKey(table: String, recordKey: String, field: String)
 }

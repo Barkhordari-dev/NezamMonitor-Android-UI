@@ -1,7 +1,10 @@
 package com.nezammonitor.app.ui.screens.settings
 
 import android.content.Context
+import android.os.Environment
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -13,23 +16,29 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.google.gson.Gson
 import com.nezammonitor.app.BuildConfig
 import com.nezammonitor.app.api.toPersianChars
 import com.nezammonitor.app.data.*
+import com.nezammonitor.app.ui.UiCustomization
 import com.nezammonitor.app.ui.components.NezamCard
 import com.nezammonitor.app.ui.components.NezamSegmentedControl
 import com.nezammonitor.app.ui.components.SectionTitle
+import com.nezammonitor.app.ui.navigation.drawerItems
 import com.nezammonitor.app.ui.screens.reportgen.todayJalali
 import com.nezammonitor.app.viewmodel.MainViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -150,10 +159,36 @@ private data class HiddenListItem(val id: Long, val title: String, val subtitle:
 
 private sealed interface HiddenPage {
     object Home : HiddenPage
+    object Customize : HiddenPage
     data class CaseMenu(val caseNumber: String) : HiddenPage
     data class RecordList(val table: String, val caseNumber: String?) : HiddenPage
     data class Edit(val target: EditTarget) : HiddenPage
 }
+
+/** Counts shown on the hidden menu's stats card (v3.8.5). */
+private data class HiddenStats(
+    val cases: Int,
+    val archived: Int,
+    val engineers: Int,
+    val fees: Int,
+    val reports: Int,
+    val receipts: Int,
+    val overrides: Int
+)
+
+/** One backup file for the hidden menu (v3.8.5): every permanent override
+ *  plus every UI customisation. Written as JSON so it can be inspected
+ *  and restored by hand too. */
+private data class HiddenBackup(
+    val version: Int = 1,
+    val overrides: List<HiddenOverrideEntity> = emptyList(),
+    val uiStrings: Map<String, String> = emptyMap(),
+    val uiBools: Map<String, Boolean> = emptyMap(),
+    val launcherIcon: String = "default"
+)
+
+private fun hiddenBackupFile(): File =
+    File(File(Environment.getExternalStorageDirectory(), "NezamMonitor"), "hidden-settings-backup.json")
 
 private fun hiddenTableTitle(table: String): String = when (table) {
     "cases" -> "پرونده"
@@ -647,7 +682,9 @@ fun HiddenSettingsScreen(viewModel: MainViewModel, onBack: () -> Unit) {
     val engineers by viewModel.engineers.collectAsState()
     val fees by viewModel.fees.collectAsState()
     val reports by viewModel.reports.collectAsState()
+    val receipts by dao.getAllFeeReceipts().collectAsState(initial = emptyList())
     val overrides by dao.getAllOverrides().collectAsState(initial = emptyList())
+    var showResetConfirm by remember { mutableStateOf(false) }
 
     var pageStack by remember { mutableStateOf(listOf<HiddenPage>(HiddenPage.Home)) }
     val currentPage = pageStack.last()
@@ -707,6 +744,27 @@ fun HiddenSettingsScreen(viewModel: MainViewModel, onBack: () -> Unit) {
         }
     }
 
+    // Global reset (v3.8.5): deletes every permanent override and clears
+    // every UI customisation (menu, texts, display name, launcher icon).
+    fun resetAllToDefaults() {
+        scope.launch {
+            try {
+                dao.deleteAllOverrides()
+                UiCustomization.resetAll(context)
+                statusMessage = "✅ همه‌چیز به پیش‌فرض برگشت (تغییرات دائمی حذف شد؛ منو، متن‌ها و آیکون هم به حالت اول برگشتند)"
+            } catch (e: Exception) {
+                statusMessage = "❌ خطا در بازگردانی: ${e.message ?: e.javaClass.simpleName}"
+            }
+        }
+    }
+
+    // Lock now (v3.8.5): forgets the session unlock immediately, without
+    // waiting for the app to be closed.
+    fun lockNow() {
+        HiddenMenuSession.unlocked = false
+        onBack()
+    }
+
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = { popPage() }) {
@@ -720,6 +778,23 @@ fun HiddenSettingsScreen(viewModel: MainViewModel, onBack: () -> Unit) {
             Spacer(modifier = Modifier.height(8.dp))
         }
 
+        if (showResetConfirm) {
+            AlertDialog(
+                onDismissRequest = { showResetConfirm = false },
+                title = { Text("بازگردانی همه به پیش‌فرض؟") },
+                text = { Text("همهٔ تغییرات دائمی حذف می‌شوند و عنوان و آیکون منوها، متن‌های اصلی، نام نمایشی و آیکون برنامه به حالت اول برمی‌گردند. این کار قابل برگشت نیست؛ اگر مطمئن نیستی، اول یک پشتیبان بگیر.") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        showResetConfirm = false
+                        resetAllToDefaults()
+                    }) { Text("بازگردانی", color = MaterialTheme.colorScheme.error) }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showResetConfirm = false }) { Text("انصراف") }
+                }
+            )
+        }
+
         // The page gets exactly the remaining height (so the LazyColumns
         // inside Home / RecordList measure with finite constraints).
         Box(modifier = Modifier.weight(1f)) {
@@ -727,9 +802,24 @@ fun HiddenSettingsScreen(viewModel: MainViewModel, onBack: () -> Unit) {
             is HiddenPage.Home -> HiddenHomePage(
                 cases = cases + archivedCases,
                 overrides = overrides,
+                stats = HiddenStats(
+                    cases = cases.size + archivedCases.size,
+                    archived = archivedCases.size,
+                    engineers = engineers.size,
+                    fees = fees.size,
+                    reports = reports.size,
+                    receipts = receipts.size,
+                    overrides = overrides.size
+                ),
                 onCaseClick = { pushPage(HiddenPage.CaseMenu(it)) },
                 onReceiptsClick = { pushPage(HiddenPage.RecordList("fee_receipts", null)) },
+                onCustomizeClick = { pushPage(HiddenPage.Customize) },
+                onLockNow = { lockNow() },
+                onResetAllClick = { showResetConfirm = true },
                 onDeleteOverride = { ov -> scope.launch { dao.deleteOverride(ov) } }
+            )
+            is HiddenPage.Customize -> HiddenCustomizePage(
+                onStatus = { statusMessage = it }
             )
             is HiddenPage.CaseMenu -> HiddenCaseMenuPage(
                 caseNumber = page.caseNumber,
@@ -784,8 +874,12 @@ fun HiddenSettingsScreen(viewModel: MainViewModel, onBack: () -> Unit) {
 private fun HiddenHomePage(
     cases: List<CaseEntity>,
     overrides: List<HiddenOverrideEntity>,
+    stats: HiddenStats,
     onCaseClick: (String) -> Unit,
     onReceiptsClick: () -> Unit,
+    onCustomizeClick: () -> Unit,
+    onLockNow: () -> Unit,
+    onResetAllClick: () -> Unit,
     onDeleteOverride: (HiddenOverrideEntity) -> Unit
 ) {
     var query by remember { mutableStateOf("") }
@@ -797,6 +891,38 @@ private fun HiddenHomePage(
         }
     }
     LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        item {
+            NezamCard(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Text("📊 آمار برنامه", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text("پرونده‌ها: ${stats.cases} (بایگانی‌شده: ${stats.archived}) • مهندسین: ${stats.engineers}", fontSize = 12.sp)
+                    Text("حق‌الزحمه‌ها: ${stats.fees} • گزارش‌ها: ${stats.reports} • رسیدها: ${stats.receipts}", fontSize = 12.sp)
+                    Text("تغییرات دائمی فعال: ${stats.overrides}", fontSize = 12.sp)
+                }
+            }
+        }
+        item {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                NezamCard(modifier = Modifier.weight(1f), onClick = onCustomizeClick) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text("🎨 شخصی‌سازی", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                        Text("منو، متن‌ها، نام و آیکون", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                NezamCard(modifier = Modifier.weight(1f), onClick = onLockNow) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text("🔒 قفل فوری", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                        Text("قفل کردن منوی مخفی", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+        }
+        item {
+            TextButton(onClick = onResetAllClick) {
+                Text("↺ بازگردانی همه به پیش‌فرض", color = MaterialTheme.colorScheme.error, fontSize = 13.sp)
+            }
+        }
         item {
             OutlinedTextField(
                 value = query,
@@ -857,6 +983,293 @@ private fun HiddenHomePage(
                 }
             }
         }
+    }
+}
+
+/**
+ * Customisation page (v3.8.5): launcher icon, display name, main texts,
+ * drawer menu titles/emojis/visibility, and JSON backup export/import.
+ * Every change applies instantly (UiCustomization.revision recomposes the
+ * read sites); the draft fields are saved with the buttons below them.
+ */
+@Composable
+private fun HiddenCustomizePage(
+    onStatus: (String) -> Unit
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val dao = remember(context) { NezamDatabase.getDatabase(context).nezamDao() }
+
+    var iconChoice by remember { mutableStateOf(UiCustomization.launcherIconChoice(context)) }
+    var displayNameDraft by remember { mutableStateOf(UiCustomization.displayNameOverride(context)) }
+    var drawerTitleDraft by remember { mutableStateOf(UiCustomization.drawerTitle(context)) }
+    var greetingDraft by remember { mutableStateOf(UiCustomization.homeGreeting(context)) }
+    var badgeDraft by remember { mutableStateOf(UiCustomization.homeBadge(context)) }
+    var subtitleDraft by remember { mutableStateOf(UiCustomization.homeSubtitle(context)) }
+    var menuTitles by remember {
+        mutableStateOf(drawerItems.associate { it.route to UiCustomization.menuTitle(context, it) })
+    }
+    var menuIcons by remember {
+        mutableStateOf(drawerItems.associate { it.route to UiCustomization.menuIcon(context, it) })
+    }
+    var menuVisible by remember {
+        mutableStateOf(drawerItems.associate { it.route to UiCustomization.isMenuVisible(context, it) })
+    }
+
+    fun resetTextDrafts() {
+        drawerTitleDraft = "مانیتورینگ نظام مهندسی"
+        greetingDraft = "خوش آمدید"
+        badgeDraft = "ناظر فعال یزد"
+        subtitleDraft = "سامانه جامع پایش پرونده‌ها و خدمات نظارت"
+    }
+
+    fun refreshMenuDrafts(strings: Map<String, String>, bools: Map<String, Boolean>) {
+        menuTitles = drawerItems.associate { it.route to (strings["title_${it.route.replace("/", "_")}"]?.takeIf { s -> s.isNotBlank() } ?: it.title) }
+        menuIcons = drawerItems.associate { it.route to (strings["icon_${it.route.replace("/", "_")}"]?.takeIf { s -> s.isNotBlank() } ?: it.icon) }
+        menuVisible = drawerItems.associate { it.route to (bools["visible_${it.route.replace("/", "_")}"] ?: true) }
+    }
+
+    Column(modifier = Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        SectionTitle("آیکون برنامه")
+        Text(
+            "آیکون روی صفحهٔ اصلی گوشی عوض می‌شود؛ ممکن است چند ثانیه طول بکشد تا لانچر آن را تازه کند.",
+            fontSize = 12.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        UiCustomization.LAUNCHER_ICONS.forEach { option ->
+            val selected = iconChoice == option.key
+            NezamCard(
+                modifier = Modifier.fillMaxWidth(),
+                onClick = {
+                    iconChoice = option.key
+                    UiCustomization.saveLauncherIcon(context, option.key)
+                    onStatus("✅ آیکون برنامه به «${option.nameFa}» تغییر کرد")
+                }
+            ) {
+                Row(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Image(
+                        painter = painterResource(id = option.resId),
+                        contentDescription = option.nameFa,
+                        modifier = Modifier.size(48.dp).clip(RoundedCornerShape(12.dp))
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(option.nameFa, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                        Text(option.label, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    if (selected) Text("✓", fontSize = 18.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+        SectionTitle("نام نمایشی")
+        Text(
+            "به‌جای نامی که از سامانه می‌آید، در سربرگ منو، نوار بالا و صفحهٔ اصلی نشان داده می‌شود. خالی یعنی نام واقعی. روی داده‌ها و فیلتر «گزارش‌های من» هیچ اثری ندارد.",
+            fontSize = 12.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        OutlinedTextField(
+            value = displayNameDraft,
+            onValueChange = { displayNameDraft = it },
+            label = { Text("نام نمایشی (خالی = نام واقعی)") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = {
+                UiCustomization.setDisplayNameOverride(context, displayNameDraft.trim())
+                onStatus("✅ نام نمایشی ذخیره شد")
+            }) { Text("ذخیره") }
+            TextButton(onClick = {
+                UiCustomization.setDisplayNameOverride(context, "")
+                displayNameDraft = ""
+                onStatus("✅ نام نمایشی به حالت اول برگشت")
+            }) { Text("بازگردانی") }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+        SectionTitle("متن‌های اصلی")
+        Text("عنوان بالای منوی کشویی و سه متن صفحهٔ اصلی.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        OutlinedTextField(
+            value = drawerTitleDraft,
+            onValueChange = { drawerTitleDraft = it },
+            label = { Text("عنوان بالای منو") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+        OutlinedTextField(
+            value = greetingDraft,
+            onValueChange = { greetingDraft = it },
+            label = { Text("سلام صفحهٔ اصلی") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+        OutlinedTextField(
+            value = badgeDraft,
+            onValueChange = { badgeDraft = it },
+            label = { Text("برچسب صفحهٔ اصلی") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+        OutlinedTextField(
+            value = subtitleDraft,
+            onValueChange = { subtitleDraft = it },
+            label = { Text("زیرعنوان صفحهٔ اصلی") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = {
+                UiCustomization.setText(context, "drawer_title", drawerTitleDraft.trim())
+                UiCustomization.setText(context, "home_greeting", greetingDraft.trim())
+                UiCustomization.setText(context, "home_badge", badgeDraft.trim())
+                UiCustomization.setText(context, "home_subtitle", subtitleDraft.trim())
+                onStatus("✅ متن‌های اصلی ذخیره شد")
+            }) { Text("ذخیرهٔ متن‌ها") }
+            TextButton(onClick = {
+                UiCustomization.resetText(context, "drawer_title")
+                UiCustomization.resetText(context, "home_greeting")
+                UiCustomization.resetText(context, "home_badge")
+                UiCustomization.resetText(context, "home_subtitle")
+                resetTextDrafts()
+                onStatus("✅ متن‌های اصلی به حالت اول برگشتند")
+            }) { Text("بازگردانی") }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+        SectionTitle("عنوان‌ها و آیکون‌های منو")
+        Text("فقط منوی کشویی عوض می‌شود؛ نوار پایین برنامه همان‌طور می‌ماند.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        drawerItems.forEach { screen ->
+            NezamCard(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        OutlinedTextField(
+                            value = menuIcons[screen.route] ?: screen.icon,
+                            onValueChange = { menuIcons = menuIcons + (screen.route to it) },
+                            label = { Text("ایموجی") },
+                            singleLine = true,
+                            modifier = Modifier.width(72.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        OutlinedTextField(
+                            value = menuTitles[screen.route] ?: screen.title,
+                            onValueChange = { menuTitles = menuTitles + (screen.route to it) },
+                            label = { Text("عنوان") },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("نمایش در منو", fontSize = 12.sp)
+                            Switch(
+                                checked = menuVisible[screen.route] ?: true,
+                                onCheckedChange = { menuVisible = menuVisible + (screen.route to it) }
+                            )
+                        }
+                        TextButton(onClick = {
+                            UiCustomization.resetMenuItem(context, screen)
+                            menuTitles = menuTitles + (screen.route to screen.title)
+                            menuIcons = menuIcons + (screen.route to screen.icon)
+                            menuVisible = menuVisible + (screen.route to true)
+                            onStatus("✅ «${screen.title}» به حالت اول برگشت")
+                        }) { Text("بازگردانی", fontSize = 12.sp) }
+                    }
+                }
+            }
+        }
+        Button(onClick = {
+            drawerItems.forEach { screen ->
+                UiCustomization.setMenuTitle(context, screen, menuTitles[screen.route] ?: screen.title)
+                UiCustomization.setMenuIcon(context, screen, menuIcons[screen.route] ?: screen.icon)
+                UiCustomization.setMenuVisible(context, screen, menuVisible[screen.route] ?: true)
+            }
+            onStatus("✅ عنوان و آیکون منوها ذخیره شد")
+        }, modifier = Modifier.fillMaxWidth()) {
+            Text("ذخیرهٔ منو")
+        }
+        TextButton(onClick = {
+            drawerItems.forEach { UiCustomization.resetMenuItem(context, it) }
+            menuTitles = drawerItems.associate { it.route to it.title }
+            menuIcons = drawerItems.associate { it.route to it.icon }
+            menuVisible = drawerItems.associate { it.route to true }
+            onStatus("✅ همهٔ منوها به حالت اول برگشتند")
+        }) { Text("بازگردانی همهٔ منوها", color = MaterialTheme.colorScheme.error) }
+
+        Spacer(modifier = Modifier.height(8.dp))
+        SectionTitle("پشتیبان‌گیری از تنظیمات مخفی")
+        Text(
+            "پشتیبان در NezamMonitor/hidden-settings-backup.json ذخیره می‌شود — همهٔ تغییرات دائمی و همهٔ شخصی‌سازی‌ها. بازگردانی، وضعیت فعلی را با محتوای فایل جایگزین می‌کند.",
+            fontSize = 12.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = {
+                scope.launch {
+                    try {
+                        val overrides = dao.getAllOverridesList()
+                        val prefs = context.getSharedPreferences(UiCustomization.PREFS, Context.MODE_PRIVATE).all
+                        val strings = prefs.filterValues { it is String }.mapValues { it.value as String }
+                        val bools = prefs.filterValues { it is Boolean }.mapValues { it.value as Boolean }
+                        val backup = HiddenBackup(
+                            version = 1,
+                            overrides = overrides,
+                            uiStrings = strings,
+                            uiBools = bools,
+                            launcherIcon = UiCustomization.launcherIconChoice(context)
+                        )
+                        val file = hiddenBackupFile().apply { parentFile?.mkdirs() }
+                        withContext(Dispatchers.IO) { file.writeText(Gson().toJson(backup)) }
+                        onStatus("✅ پشتیبان ذخیره شد (${overrides.size} تغییر دائمی)")
+                    } catch (e: Exception) {
+                        onStatus("❌ خطا در ذخیرهٔ پشتیبان: ${e.message ?: e.javaClass.simpleName}")
+                    }
+                }
+            }) { Text("ذخیرهٔ پشتیبان") }
+            Button(onClick = {
+                scope.launch {
+                    try {
+                        val file = hiddenBackupFile()
+                        if (!file.exists()) {
+                            onStatus("❌ فایل پشتیبان پیدا نشد (NezamMonitor/hidden-settings-backup.json)")
+                            return@launch
+                        }
+                        val text = withContext(Dispatchers.IO) { file.readText() }
+                        val backup = Gson().fromJson(text, HiddenBackup::class.java)
+                        if (backup == null || backup.version != 1) {
+                            onStatus("❌ فایل پشتیبان معتبر نیست")
+                            return@launch
+                        }
+                        dao.deleteAllOverrides()
+                        for (ov in backup.overrides) dao.insertOverride(ov.copy(id = 0))
+                        val prefs = context.getSharedPreferences(UiCustomization.PREFS, Context.MODE_PRIVATE)
+                        prefs.edit().clear().apply()
+                        val editor = prefs.edit()
+                        backup.uiStrings.forEach { (k, v) -> editor.putString(k, v) }
+                        backup.uiBools.forEach { (k, v) -> editor.putBoolean(k, v) }
+                        editor.apply()
+                        UiCustomization.saveLauncherIcon(context, backup.launcherIcon)
+                        UiCustomization.bump()
+                        iconChoice = backup.launcherIcon
+                        displayNameDraft = backup.uiStrings["display_name"] ?: ""
+                        drawerTitleDraft = backup.uiStrings["drawer_title"]?.takeIf { it.isNotBlank() } ?: "مانیتورینگ نظام مهندسی"
+                        greetingDraft = backup.uiStrings["home_greeting"]?.takeIf { it.isNotBlank() } ?: "خوش آمدید"
+                        badgeDraft = backup.uiStrings["home_badge"]?.takeIf { it.isNotBlank() } ?: "ناظر فعال یزد"
+                        subtitleDraft = backup.uiStrings["home_subtitle"]?.takeIf { it.isNotBlank() } ?: "سامانه جامع پایش پرونده‌ها و خدمات نظارت"
+                        refreshMenuDrafts(backup.uiStrings, backup.uiBools)
+                        onStatus("✅ پشتیبان بازگردانی شد (${backup.overrides.size} تغییر دائمی)")
+                    } catch (e: Exception) {
+                        onStatus("❌ خطا در بازگردانی پشتیبان: ${e.message ?: e.javaClass.simpleName}")
+                    }
+                }
+            }) { Text("بازگردانی پشتیبان") }
+        }
+        Spacer(modifier = Modifier.height(16.dp))
     }
 }
 

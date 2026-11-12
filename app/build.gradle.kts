@@ -1,6 +1,9 @@
+import java.awt.Color
+import java.awt.image.BufferedImage
 import java.io.File
 import java.util.Base64
 import java.util.Properties
+import javax.imageio.ImageIO
 
 plugins {
     id("com.android.application")
@@ -29,8 +32,8 @@ android {
         applicationId = "com.nezammonitor.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 69
-        versionName = "3.8.4"
+        versionCode = 70
+        versionName = "3.8.5"
         buildConfigField("String", "HIDDEN_MENU_FOLDER_ID", "\"$hiddenMenuFolderId\"")
     }
 
@@ -142,3 +145,52 @@ val decodeFonts by tasks.registering {
     }
 }
 tasks.named("preBuild").configure { dependsOn(decodeFonts) }
+
+// Launcher icon variants (v3.8.5): the variant PNGs are generated at build
+// time from the original icon (same hue-shift as the reference script in
+// ~/workspace/icon-variants/make_variants.py) because the repo's push
+// channel only carries text — binary PNGs can never be committed. The
+// generated files are gitignored and never committed.
+val generateLauncherIconVariants by tasks.registering {
+    val src = layout.projectDirectory.file("src/main/res/mipmap-hdpi/ic_launcher.png")
+    val outDir = layout.projectDirectory.dir("src/main/res/mipmap-hdpi")
+    inputs.file(src)
+    outputs.file(outDir.file("ic_launcher_green.png"))
+    outputs.file(outDir.file("ic_launcher_gold.png"))
+    outputs.file(outDir.file("ic_launcher_dark.png"))
+    doLast {
+        val img = ImageIO.read(src.asFile)
+        val w = img.width
+        val h = img.height
+        val pixels = IntArray(w * h)
+        img.getRGB(0, 0, w, h, pixels, 0, w)
+        val hsb = FloatArray(3)
+        fun variant(transform: (Float, Float, Float) -> Triple<Float, Float, Float>): BufferedImage {
+            val out = BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB)
+            val outPixels = IntArray(pixels.size)
+            for (i in pixels.indices) {
+                val argb = pixels[i]
+                Color.RGBtoHSB((argb shr 16) and 0xFF, (argb shr 8) and 0xFF, argb and 0xFF, hsb)
+                val (nh, ns, nb) = transform(hsb[0], hsb[1], hsb[2])
+                val rgb = Color.HSBtoRGB(nh, ns, nb) and 0x00FFFFFF
+                outPixels[i] = ((argb ushr 24) shl 24) or rgb
+            }
+            out.setRGB(0, 0, w, h, outPixels, 0, w)
+            return out
+        }
+        val isBlue: (Float, Float, Float) -> Boolean = { hh, ss, bb ->
+            hh >= 190f / 360f && hh <= 260f / 360f && ss > 40f / 255f && bb > 30f / 255f
+        }
+        val green = variant { hh, ss, bb ->
+            if (isBlue(hh, ss, bb)) Triple((hh - 70f / 360f + 1f) % 1f, ss, bb) else Triple(hh, ss, bb)
+        }
+        ImageIO.write(green, "png", File(outDir.asFile, "ic_launcher_green.png"))
+        val gold = variant { hh, ss, bb ->
+            if (isBlue(hh, ss, bb)) Triple(35f / 360f, ss, bb) else Triple(hh, ss, bb)
+        }
+        ImageIO.write(gold, "png", File(outDir.asFile, "ic_launcher_gold.png"))
+        val dark = variant { hh, ss, bb -> Triple(hh, ss * 0.92f, bb * 0.70f) }
+        ImageIO.write(dark, "png", File(outDir.asFile, "ic_launcher_dark.png"))
+    }
+}
+tasks.named("preBuild").configure { dependsOn(generateLauncherIconVariants) }

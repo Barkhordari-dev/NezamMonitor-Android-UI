@@ -24,6 +24,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.LayoutDirection
 import com.nezammonitor.app.ui.NezamMonitorApp
+import com.nezammonitor.app.ui.UiCustomization
 import com.nezammonitor.app.ui.screens.settings.AppPreferences
 import com.nezammonitor.app.ui.theme.NezamMonitorTheme
 import com.nezammonitor.app.viewmodel.MainViewModel
@@ -34,6 +35,16 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         installCrashLog()
+
+        // Hidden-menu launcher icon (v3.8.5): re-assert the saved alias on
+        // every launch so exactly one launcher icon stays enabled.
+        try {
+            UiCustomization.applyLauncherIcon(
+                this,
+                UiCustomization.launcherIconChoice(this)
+            )
+        } catch (_: Exception) {
+        }
 
         // Request MANAGE_EXTERNAL_STORAGE for Android 11+
         requestStoragePermission()
