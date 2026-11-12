@@ -139,6 +139,35 @@ fun ReportGeneratorScreen(viewModel: MainViewModel, initialTab: Int = 0, onBack:
         }
     }
 
+    fun doGeneratePdf() {
+        if (selectedStage == 0 || selectedCases.isEmpty()) {
+            statusText = "لطفاً مرحله و حداقل یک پرونده را انتخاب کنید"
+            return
+        }
+        isGenerating = true
+        statusText = ""
+        resultFiles = emptyList()
+        scope.launch {
+            val result = withContext(Dispatchers.IO) {
+                generateReportPdfs(
+                    context = context,
+                    cases = cases.filter { it.caseNumber in selectedCases },
+                    engineers = engineers,
+                    fees = fees,
+                    specs = specs,
+                    reports = reports,
+                    localHistory = localHistory,
+                    stage = selectedStage,
+                    userName = userName,
+                    outputsDir = outputsDir
+                )
+            }
+            resultFiles = result.files
+            statusText = result.message
+            isGenerating = false
+        }
+    }
+
     if (showDuplicateWarning) {
         AlertDialog(
             onDismissRequest = { showDuplicateWarning = false },
@@ -194,6 +223,19 @@ fun ReportGeneratorScreen(viewModel: MainViewModel, initialTab: Int = 0, onBack:
                     OutlinedButton(onClick = onNavigateToHelp, modifier = Modifier.weight(1f)) {
                         Text("❓ راهنما", fontSize = 13.sp)
                     }
+                }
+            }
+
+            // PDF export: same report data as the Word file, rendered as a
+            // vector PDF (no template needed, small file, high quality).
+            item {
+                OutlinedButton(
+                    onClick = { doGeneratePdf() },
+                    modifier = Modifier.fillMaxWidth().height(50.dp),
+                    enabled = !isGenerating && selectedStage > 0 && selectedCases.isNotEmpty()
+                ) {
+                    if (isGenerating) { CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.primary); Spacer(modifier = Modifier.width(8.dp)) }
+                    Text("📄 تولید گزارش PDF", fontSize = 15.sp)
                 }
             }
 
@@ -282,19 +324,7 @@ fun ReportGeneratorScreen(viewModel: MainViewModel, initialTab: Int = 0, onBack:
                 // as registered only when THIS user submitted its report, not
                 // another engineer on the same case.
                 val historyByStage = remember(case, localHistory, reports, userName) {
-                    val map = mutableMapOf<Int, Pair<GeneratedReportRecord?, ReportEntity?>>()
-                    localHistory.filter { it.caseNumber == case.caseNumber }.forEach { rec ->
-                        val cur = map[rec.stage]
-                        map[rec.stage] = rec to cur?.second
-                    }
-                    reports.filter { it.caseNumber == case.caseNumber && isOwnServerReport(it, userName) }.forEach { rep ->
-                        val n = stageNumberFromTitle(rep.stage)
-                        if (n > 0) {
-                            val cur = map[n]
-                            map[n] = cur?.first to rep
-                        }
-                    }
-                    map
+                    historyByStageFor(case, localHistory, reports, userName)
                 }
                 // Long-press a row for the archive menu (combinedClickable
                 // needs ExperimentalFoundationApi in this Compose version).
@@ -364,7 +394,7 @@ fun ReportGeneratorScreen(viewModel: MainViewModel, initialTab: Int = 0, onBack:
             if (resultFiles.isNotEmpty()) {
                 item { Text("فایل‌های تولید شده:", fontWeight = FontWeight.Bold, fontSize = 14.sp) }
                 items(resultFiles) { file ->
-                    Card(modifier = Modifier.fillMaxWidth().clickable { try { val uri = androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file); context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW).apply { setDataAndType(uri, "application/vnd.openxmlformats-officedocument.wordprocessingml.document"); addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION) }) } catch (_: Exception) {} }) {
+                    Card(modifier = Modifier.fillMaxWidth().clickable { try { val uri = androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file); context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW).apply { setDataAndType(uri, mimeFor(file.name)); addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION) }) } catch (_: Exception) {} }) {
                         Row(modifier = Modifier.padding(12.dp).fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                             Column(modifier = Modifier.weight(1f)) { Text("📄 ${file.name}", fontSize = 13.sp); Text(file.parentFile?.name ?: "", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                             Text("باز کردن →", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
@@ -443,6 +473,147 @@ private fun generateReports(context: Context, cases: List<CaseEntity>, allCases:
         } catch (e: Exception) { return GenerateResult(files, "❌ خطا: ${case.owner}: ${e.message}") }
     }
     return GenerateResult(files, "✅ $count گزارش مرحله $stageName تولید شد\n📁 ${outputsDir.absolutePath}")
+}
+
+/** Generation history per stage for one case: local file (with generation
+ *  date+time) and/or server report (with registration date). Server reports
+ *  are filtered to the current user — a stage counts as registered only when
+ *  THIS user submitted its report, not another engineer on the same case. */
+private fun historyByStageFor(
+    case: CaseEntity,
+    localHistory: List<GeneratedReportRecord>,
+    reports: List<ReportEntity>,
+    userName: String
+): Map<Int, Pair<GeneratedReportRecord?, ReportEntity?>> {
+    val map = mutableMapOf<Int, Pair<GeneratedReportRecord?, ReportEntity?>>()
+    localHistory.filter { it.caseNumber == case.caseNumber }.forEach { rec ->
+        val cur = map[rec.stage]
+        map[rec.stage] = rec to cur?.second
+    }
+    reports.filter { it.caseNumber == case.caseNumber && isOwnServerReport(it, userName) }.forEach { rep ->
+        val n = stageNumberFromTitle(rep.stage)
+        if (n > 0) {
+            val cur = map[n]
+            map[n] = cur?.first to rep
+        }
+    }
+    return map
+}
+
+/** The PDF sections for one case's report: case details, the supervisor's
+ *  name, the engineers, and the stage schedule with each stage's status
+ *  (generated/registered/remaining). Shared by the PDF export and by
+ *  printing a local history report. */
+private fun buildReportPdfSections(
+    case: CaseEntity,
+    spec: SpecificationEntity?,
+    caseEngineers: List<EngineerEntity>,
+    group: String,
+    discipline: String,
+    schedule: List<StageSchedule>,
+    historyByStage: Map<Int, Pair<GeneratedReportRecord?, ReportEntity?>>,
+    today: JalaliDate,
+    userName: String
+): List<PdfSection> {
+    val details = mutableListOf<String>()
+    fun add(label: String, value: String) {
+        if (value.isNotBlank()) details.add("$label: ${toPersianChars(value)}")
+    }
+    add("شماره پرونده", case.caseNumber)
+    add("مالک", case.owner)
+    add("شماره پروانه", spec?.permitNumber?.ifBlank { case.permitNumber } ?: case.permitNumber)
+    add("تاریخ صدور پروانه", spec?.permitDate?.ifBlank { case.permitDate } ?: case.permitDate)
+    add("گروه ساختمانی", buildingGroupLetter(group))
+    add("رشته", discipline)
+    add("نشانی", case.address)
+    add("دفتر", case.office)
+    add("نوع کاربری", spec?.usageType ?: "")
+    add("نوع سازه", spec?.structureType ?: "")
+    add("تعداد طبقات", spec?.floors ?: "")
+    add("تعداد واحد", spec?.units ?: "")
+    val sections = mutableListOf(PdfSection("مشخصات پرونده", details))
+    if (userName.isNotBlank()) {
+        sections.add(PdfSection("نام ناظر", listOf(toPersianChars(userName))))
+    }
+    if (caseEngineers.isNotEmpty()) {
+        sections.add(PdfSection("ناظران", caseEngineers.map { e ->
+            val role = e.role.trim()
+            "${toPersianChars(e.name)} — ${toPersianChars(e.discipline)}" + if (role.isNotBlank()) " ($role)" else ""
+        }))
+    }
+    if (schedule.isNotEmpty()) {
+        sections.add(PdfSection("زمان‌بندی مراحل", schedule.map { entry ->
+            val (localRec, serverRep) = historyByStage[entry.stage] ?: (null to null)
+            val status = generationHistoryText(localRec, serverRep)
+                .ifBlank { remainingText(entry.dueDate, today) }
+            "مرحله ${stageNameForNumber(entry.stage)}: سررسید ${entry.dueDate} — $status"
+        }))
+    }
+    return sections
+}
+
+/** Generate a PDF report for each selected case (same data as the Word
+ *  report, rendered as vector text on A4 pages — sharp at any zoom and
+ *  tens of kilobytes, far under the 2 MB limit). No Word template is
+ *  needed. The PDF goes into the same per-case folder as its Word file. */
+private fun generateReportPdfs(
+    context: Context,
+    cases: List<CaseEntity>,
+    engineers: List<EngineerEntity>,
+    fees: List<FeeEntity>,
+    specs: List<SpecificationEntity>,
+    reports: List<ReportEntity>,
+    localHistory: List<GeneratedReportRecord>,
+    stage: Int,
+    userName: String,
+    outputsDir: File
+): GenerateResult {
+    val files = mutableListOf<File>()
+    val stageName = stageNameForNumber(stage)
+    val scheduleConfig = ScheduleConfig(context)
+    val today = todayJalali()
+    outputsDir.mkdirs()
+    val persianDate = toPersianDate(Date()).replace("/", "-")
+    var count = 0
+    var totalBytes = 0L
+    for ((index, case) in cases.withIndex()) {
+        val rowNum = String.format("%02d", index + 1)
+        val reversedCase = reverseCaseNumber(case.caseNumber)
+        val safeOwner = case.owner.replace(Regex("[/\\\\:*?\"<>|]"), "_")
+        val folderNum = toPersianDigits(rowNum)
+        val folder = File(outputsDir, "$folderNum - $safeOwner - $reversedCase")
+        folder.mkdirs()
+        val spec = specs.firstOrNull { it.caseNumber == case.caseNumber }
+        val caseEngineers = engineers.filter { it.caseNumber == case.caseNumber }
+        val (resolvedGroupRaw, resolvedDiscipline) = resolveCaseGroupDiscipline(case, spec, engineers, fees, reports)
+        val stageCount = scheduleConfig.stageCount(resolvedGroupRaw, resolvedDiscipline)
+        val permitRaw = spec?.permitDate?.ifBlank { case.permitDate } ?: case.permitDate
+        val registeredStages = reports.filter { it.caseNumber == case.caseNumber && isOwnServerReport(it, userName) }
+            .mapNotNull { stageNumberFromTitle(it.stage).takeIf { n -> n > 0 } }.toSet()
+        val schedule = scheduleForCase(permitRaw, resolvedGroupRaw, stageCount, registeredStages, today, monthsOverride = scheduleConfig.months(resolvedGroupRaw))
+        val historyByStage = historyByStageFor(case, localHistory, reports, userName)
+        val sections = buildReportPdfSections(case, spec, caseEngineers, resolvedGroupRaw, resolvedDiscipline, schedule, historyByStage, today, userName)
+        val fileName = "گزارش مرحله $stageName $safeOwner - $persianDate.pdf"
+        val outputFile = File(folder, fileName)
+        val pdf = generateReportPdf(
+            title = "گزارش مرحله $stageName",
+            subtitle = "مانیتورینگ نظام مهندسی",
+            sections = sections,
+            footer = "تاریخ گزارش: $persianDate",
+            outputFile = outputFile
+        )
+        if (pdf != null) {
+            files.add(pdf)
+            totalBytes += pdf.length()
+            count++
+        }
+    }
+    val sizeText = if (totalBytes < 1024 * 1024) "${totalBytes / 1024} کیلوبایت" else "${"%.1f".format(totalBytes / 1024.0 / 1024.0)} مگابایت"
+    return GenerateResult(
+        files,
+        if (count > 0) "✅ $count گزارش PDF مرحله $stageName تولید شد ($sizeText)\n📁 ${outputsDir.absolutePath}"
+        else "❌ تولید PDF ناموفق بود"
+    )
 }
 
 private fun findTemplate(templatesDir: File, stageName: String, disciplines: List<String> = emptyList()): File? {
@@ -619,6 +790,9 @@ private fun HistoryTab(
     val scope = rememberCoroutineScope()
     val serverReports by viewModel.reports.collectAsState()
     val cases by viewModel.cases.collectAsState()
+    val specs by viewModel.specifications.collectAsState()
+    val engineers by viewModel.engineers.collectAsState()
+    val fees by viewModel.fees.collectAsState()
     val ownerByCase = remember(cases) { cases.associate { it.caseNumber to it.owner } }
 
     // Selection filters (no typing): source + stage + engineer + discipline +
@@ -634,6 +808,11 @@ private fun HistoryTab(
     var showDeleteConfirm by remember { mutableIntStateOf(-1) }
     var downloadingId by remember { mutableStateOf<Long?>(null) }
     var downloadError by remember { mutableStateOf("") }
+    // Printing: server reports ask first (they are registered in the system),
+    // local reports print straight away.
+    var printWarningItem by remember { mutableStateOf<HistoryItem.Server?>(null) }
+    var printingId by remember { mutableStateOf<Long?>(null) }
+    var printError by remember { mutableStateOf("") }
 
     // Only the current user's server reports — other engineers' reports on the
     // same cases are excluded. Local reports were generated on this phone, so
@@ -701,28 +880,30 @@ private fun HistoryTab(
     val serverCount = items.count { it is HistoryItem.Server }
     val localCount = items.count { it is HistoryItem.Local }
 
+    // Download a server report's file into the cache; null on failure.
+    // Shared by "دانلود و باز کردن" and by printing.
+    suspend fun downloadServerFile(report: ReportEntity): File? = withContext(Dispatchers.IO) {
+        try {
+            val bytes = NezamApi().downloadFile(report.imageName).getOrNull() ?: return@withContext null
+            val safeName = report.imageName.replace(Regex("[/\\\\:*?\"<>|]"), "_")
+            val dir = File(context.cacheDir, "server_reports").apply { mkdirs() }
+            val file = File(dir, safeName)
+            file.writeBytes(bytes)
+            file
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     fun downloadAndOpen(report: ReportEntity) {
         if (downloadingId != null || report.imageName.isBlank()) return
         downloadingId = report.id
         downloadError = ""
         scope.launch {
-            val savedPath = withContext(Dispatchers.IO) {
-                try {
-                    val bytes = NezamApi().downloadFile(report.imageName).getOrNull()
-                        ?: return@withContext null
-                    val safeName = report.imageName.replace(Regex("[/\\\\:*?\"<>|]"), "_")
-                    val dir = File(context.cacheDir, "server_reports").apply { mkdirs() }
-                    val file = File(dir, safeName)
-                    file.writeBytes(bytes)
-                    file.absolutePath
-                } catch (_: Exception) {
-                    null
-                }
-            }
+            val file = downloadServerFile(report)
             downloadingId = null
-            if (savedPath != null) {
+            if (file != null) {
                 try {
-                    val file = File(savedPath)
                     val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
                     val intent = Intent(Intent.ACTION_VIEW).apply {
                         setDataAndType(uri, mimeFor(file.name))
@@ -734,6 +915,90 @@ private fun HistoryTab(
                 }
             } else {
                 downloadError = "خطا در دانلود فایل از سامانه"
+            }
+        }
+    }
+
+    // Print a local (on-device) report: rebuild the report as a PDF from the
+    // case's own data (same sections as the PDF export) and send it to the
+    // printer. The .docx itself cannot be printed directly.
+    fun printLocalReport(record: GeneratedReportRecord) {
+        if (printingId != null) return
+        printingId = -1L
+        printError = ""
+        scope.launch {
+            val file = withContext(Dispatchers.IO) {
+                try {
+                    val case = cases.firstOrNull { it.caseNumber == record.caseNumber }
+                    val spec = specs.firstOrNull { it.caseNumber == record.caseNumber }
+                    val caseEngineers = engineers.filter { it.caseNumber == record.caseNumber }
+                    val (group, discipline) = if (case != null) {
+                        resolveCaseGroupDiscipline(case, spec, engineers, fees, serverReports)
+                    } else "" to ""
+                    val scheduleConfig = ScheduleConfig(context)
+                    val today = todayJalali()
+                    val stageCount = scheduleConfig.stageCount(group, discipline)
+                    val permitRaw = spec?.permitDate?.ifBlank { case?.permitDate } ?: case?.permitDate ?: ""
+                    val registeredStages = serverReports.filter { it.caseNumber == record.caseNumber && isOwnServerReport(it, userName) }
+                        .mapNotNull { stageNumberFromTitle(it.stage).takeIf { n -> n > 0 } }.toSet()
+                    val schedule = scheduleForCase(permitRaw, group, stageCount, registeredStages, today, monthsOverride = scheduleConfig.months(group))
+                    val historyByStage = if (case != null) historyByStageFor(case, localHistory, serverReports, userName) else emptyMap()
+                    val sections = if (case != null) {
+                        buildReportPdfSections(case, spec, caseEngineers, group, discipline, schedule, historyByStage, today, userName)
+                    } else {
+                        listOf(PdfSection("مشخصات پرونده", listOf(
+                            "شماره پرونده: ${record.caseNumber}",
+                            "مالک: ${toPersianChars(record.owner)}"
+                        )))
+                    }
+                    val dir = File(context.cacheDir, "print").apply { mkdirs() }
+                    val stageName = stageNameForNumber(record.stage)
+                    val out = File(dir, "گزارش مرحله $stageName ${record.owner}.pdf")
+                    generateReportPdf(
+                        title = "گزارش مرحله $stageName",
+                        subtitle = "مانیتورینگ نظام مهندسی",
+                        sections = sections,
+                        footer = "تاریخ گزارش: ${displayShamsiDate(record.createdAt)}",
+                        outputFile = out
+                    )
+                } catch (_: Exception) {
+                    null
+                }
+            }
+            printingId = null
+            if (file != null) {
+                try {
+                    printPdfFile(context, file, "گزارش ${toPersianChars(record.owner)}")
+                } catch (_: Exception) {
+                    printError = "خطا در ارسال به پرینتر"
+                }
+            } else {
+                printError = "خطا در آماده‌سازی فایل چاپ"
+            }
+        }
+    }
+
+    // Print a server report: download it, then print the PDF as-is or the
+    // image as one A4 page. A Word file cannot be printed directly.
+    fun printServerReport(report: ReportEntity) {
+        if (printingId != null || report.imageName.isBlank()) return
+        printingId = report.id
+        printError = ""
+        scope.launch {
+            val file = downloadServerFile(report)
+            printingId = null
+            if (file == null) {
+                printError = "خطا در دانلود فایل از سامانه"
+                return@launch
+            }
+            try {
+                when (file.name.substringAfterLast('.', "").lowercase()) {
+                    "pdf" -> printPdfFile(context, file, "گزارش ${toPersianChars(report.engineer)}")
+                    "jpg", "jpeg", "png" -> printImageFile(context, file, "گزارش ${toPersianChars(report.engineer)}")
+                    else -> printError = "چاپ مستقیم این نوع فایل (${file.name.substringAfterLast('.', "")}) ممکن نیست؛ ابتدا آن را دانلود کنید"
+                }
+            } catch (_: Exception) {
+                printError = "خطا در ارسال به پرینتر"
             }
         }
     }
@@ -869,6 +1134,14 @@ private fun HistoryTab(
             }
         }
 
+        if (printError.isNotBlank()) {
+            item {
+                Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
+                    Text(printError, modifier = Modifier.padding(12.dp), fontSize = 12.sp, color = MaterialTheme.colorScheme.error)
+                }
+            }
+        }
+
         // History items
         if (filteredItems.isEmpty()) {
             item {
@@ -941,6 +1214,17 @@ private fun HistoryTab(
                                 TextButton(onClick = { showDeleteConfirm = index }) {
                                     Text("🗑 حذف", fontSize = 12.sp, color = MaterialTheme.colorScheme.error)
                                 }
+
+                                if (fileExists) {
+                                    if (printingId == -1L) {
+                                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                                        Text("در حال آماده‌سازی...", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    } else {
+                                        TextButton(onClick = { printLocalReport(record) }) {
+                                            Text("🖨️ چاپ", fontSize = 12.sp)
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -986,6 +1270,16 @@ private fun HistoryTab(
                                             Text("⬇️ دانلود و باز کردن", fontSize = 12.sp)
                                         }
                                     }
+                                    // A server report is registered in the system: warn
+                                    // before printing (the warning dialog asks first).
+                                    if (printingId == report.id) {
+                                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                                        Text("در حال دانلود...", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    } else {
+                                        TextButton(onClick = { printWarningItem = item }) {
+                                            Text("🖨️ چاپ", fontSize = 12.sp)
+                                        }
+                                    }
                                 } else if (!report.hasFile) {
                                     Text("فایلی در سامانه ثبت نشده است", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
@@ -1015,6 +1309,26 @@ private fun HistoryTab(
             },
             dismissButton = {
                 TextButton(onClick = { showDeleteConfirm = -1 }) { Text("لغو") }
+            }
+        )
+    }
+
+    // Print warning (server items only): this report is registered in the
+    // system, so ask before sending it to the printer.
+    if (printWarningItem != null) {
+        val item = printWarningItem
+        AlertDialog(
+            onDismissRequest = { printWarningItem = null },
+            title = { Text("چاپ گزارش سامانه") },
+            text = { Text("این گزارش در سامانه ثبت شده است. از چاپ آن مطمئن هستید؟") },
+            confirmButton = {
+                TextButton(onClick = {
+                    printWarningItem = null
+                    if (item != null) printServerReport(item.report)
+                }) { Text("بله", color = MaterialTheme.colorScheme.primary) }
+            },
+            dismissButton = {
+                TextButton(onClick = { printWarningItem = null }) { Text("خیر") }
             }
         )
     }
