@@ -32,8 +32,8 @@ android {
         applicationId = "com.nezammonitor.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 70
-        versionName = "3.8.5"
+        versionCode = 71
+        versionName = "3.8.6"
         buildConfigField("String", "HIDDEN_MENU_FOLDER_ID", "\"$hiddenMenuFolderId\"")
     }
 

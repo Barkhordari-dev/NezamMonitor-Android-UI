@@ -32,15 +32,19 @@ import java.util.*
 fun ExportScreen(viewModel: MainViewModel, onBack: () -> Unit) {
     val context = LocalContext.current
     val cases by viewModel.cases.collectAsState()
+    val archivedCases by viewModel.archivedCases.collectAsState()
     val engineers by viewModel.engineers.collectAsState()
     val fees by viewModel.fees.collectAsState()
     val reports by viewModel.reports.collectAsState()
     val specs by viewModel.specifications.collectAsState()
     val edits by viewModel.followUpEdits.collectAsState()
+    val receipts by viewModel.feeReceipts.collectAsState()
     val scope = rememberCoroutineScope()
     var statusMessage by remember { mutableStateOf("") }
     var isExporting by remember { mutableStateOf(false) }
     var lastExportedFile by remember { mutableStateOf<File?>(null) }
+    var isExportingDb by remember { mutableStateOf(false) }
+    var lastExportedDbFile by remember { mutableStateOf<File?>(null) }
 
     Scaffold(
         topBar = {
@@ -60,12 +64,13 @@ fun ExportScreen(viewModel: MainViewModel, onBack: () -> Unit) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text("اطلاعات خروجی", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                     Spacer(modifier = Modifier.height(8.dp))
-                    Text("پرونده\u200Cها: ${cases.size}", fontSize = 14.sp)
+                    Text("پرونده\u200Cها: ${cases.size + archivedCases.size} (بایگانی‌شده: ${archivedCases.size})", fontSize = 14.sp)
                     Text("مهندسین: ${engineers.size}", fontSize = 14.sp)
                     Text("حق\u200Cالزحمه: ${fees.size}", fontSize = 14.sp)
                     Text("گزارش\u200Cها: ${reports.size}", fontSize = 14.sp)
                     Text("مشخصات: ${specs.size}", fontSize = 14.sp)
                     Text("تغییرات پیگیری: ${edits.size}", fontSize = 14.sp)
+                    Text("رسیدها: ${receipts.size}", fontSize = 14.sp)
                 }
             }
 
@@ -121,6 +126,70 @@ fun ExportScreen(viewModel: MainViewModel, onBack: () -> Unit) {
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
                 ) {
                     Text("📱 اشتراک\u200Cگذاری (بلوتوث، تلگرام، ایتا...)", fontSize = 14.sp)
+                }
+            }
+
+            // ---- Windows database export (v3.8.6) ----
+            NezamCard(modifier = Modifier.fillMaxWidth(), containerColor = MaterialTheme.colorScheme.secondaryContainer) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("💾 خروجی دیتابیس ویندوز", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        "فایل دیتابیس (.db) با ساختار نسخهٔ قدیمی ویندوز — همهٔ پرونده‌ها (حتی بایگانی‌شده‌ها)، مشخصات، مهندسین، حق‌الزحمه‌ها، گزارش‌ها، پیگیری‌ها و رسیدها. در ویندوز، از قسمت تاریخچه/اسنپ‌شات‌ها گزینهٔ «ورود دیتابیس قدیمی» آن را وارد کن.",
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            Button(
+                onClick = {
+                    scope.launch {
+                        isExportingDb = true
+                        statusMessage = "در حال ایجاد فایل دیتابیس..."
+                        val result = withContext(Dispatchers.IO) {
+                            createWindowsDatabaseExport(
+                                context,
+                                cases + archivedCases,
+                                specs, engineers, fees, reports, edits, receipts
+                            )
+                        }
+                        if (result.first) {
+                            lastExportedDbFile = File(result.second)
+                            statusMessage = "✅ فایل دیتابیس ایجاد شد"
+                        } else {
+                            statusMessage = "❌ ${result.second}"
+                        }
+                        isExportingDb = false
+                    }
+                },
+                modifier = Modifier.fillMaxWidth().height(50.dp),
+                enabled = !isExportingDb
+            ) {
+                if (isExportingDb) {
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
+                    Spacer(modifier = Modifier.width(8.dp))
+                }
+                Text(if (isExportingDb) "⏳ در حال ایجاد..." else "💾 ایجاد فایل دیتابیس ویندوز", fontSize = 15.sp)
+            }
+
+            if (lastExportedDbFile != null) {
+                Button(
+                    onClick = {
+                        val file = lastExportedDbFile ?: return@Button
+                        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+                        val intent = Intent(Intent.ACTION_SEND).apply {
+                            type = "application/octet-stream"
+                            putExtra(Intent.EXTRA_STREAM, uri)
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            setPackage(null)
+                        }
+                        context.startActivity(Intent.createChooser(intent, "اشتراک\u200Cگذاری فایل دیتابیس"))
+                    },
+                    modifier = Modifier.fillMaxWidth().height(50.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
+                ) {
+                    Text("📱 اشتراک\u200Cگذاری دیتابیس (بلوتوث، تلگرام، ایتا...)", fontSize = 14.sp)
                 }
             }
 
@@ -221,20 +290,28 @@ private fun createExcelExport(
             arrayOf((r + 1).toString(), e.caseNumber, case?.owner ?: "", case?.address ?: "", case?.ownerMobile ?: "", e.description).forEachIndexed { i, v -> row.createCell(i).setCellValue(v) }
         }
 
-        // Auto-size columns
+        // Fixed column widths (v3.8.6 — the crash fix): POI's autoSizeColumn
+        // needs java.awt (SheetUtil → TextLayout / FontRenderContext),
+        // which does not exist on Android. It threw NoClassDefFoundError —
+        // an Error, not an Exception, so the old catch never caught it and
+        // the app closed the moment the button was tapped. Widths are
+        // 1/256 of a character, sized from the header text.
         for (ws in listOf(ws1, ws2, ws3, ws4, ws5)) {
-            for (i in 0 until (ws.getRow(0)?.lastCellNum?.toInt() ?: 0)) {
-                ws.autoSizeColumn(i)
+            val headerRow = ws.getRow(0) ?: continue
+            for (i in 0 until headerRow.lastCellNum.toInt()) {
+                val header = headerRow.getCell(i)?.stringCellValue ?: ""
+                val chars = (header.length + 4).coerceIn(12, 30)
+                ws.setColumnWidth(i, chars * 256)
             }
         }
 
-        val out = FileOutputStream(file)
-        wb.write(out)
-        out.close()
+        FileOutputStream(file).use { out -> wb.write(out) }
         wb.close()
 
         Pair(true, file.absolutePath)
-    } catch (e: Exception) {
+    } catch (e: Throwable) {
+        // Throwable, not Exception: an Error (like the old AWT
+        // NoClassDefFoundError) must show as an error message, never crash.
         Pair(false, "خطا: ${e.message}")
     }
 }
