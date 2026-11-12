@@ -8,6 +8,8 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Environment
 import android.provider.Settings
+import android.util.Log
+import java.io.File
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
@@ -31,6 +33,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        installCrashLog()
 
         // Request MANAGE_EXTERNAL_STORAGE for Android 11+
         requestStoragePermission()
@@ -79,6 +82,32 @@ class MainActivity : ComponentActivity() {
                     NezamMonitorApp(viewModel = viewModel)
                 }
             }
+        }
+    }
+
+    // Crash log (3.7.10): if the app ever crashes, the full stack trace is
+    // written to NezamMonitor/crash.log on external storage (and to the app's
+    // internal crash.log as a backup), so the exact cause can be read without
+    // a computer. The previous handler still runs afterwards, so the crash
+    // behaves exactly as before.
+    private fun installCrashLog() {
+        val previous = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            try {
+                val text = buildString {
+                    appendLine("NezamMonitor crash — ${java.util.Date()}")
+                    appendLine("Thread: ${thread.name}")
+                    appendLine(Log.getStackTraceString(throwable))
+                }
+                try {
+                    val dir = File(Environment.getExternalStorageDirectory(), "NezamMonitor").apply { mkdirs() }
+                    File(dir, "crash.log").writeText(text)
+                } catch (_: Exception) {}
+                try {
+                    openFileOutput("crash.log", Context.MODE_PRIVATE).use { it.write(text.toByteArray()) }
+                } catch (_: Exception) {}
+            } catch (_: Exception) {}
+            previous?.uncaughtException(thread, throwable)
         }
     }
 
