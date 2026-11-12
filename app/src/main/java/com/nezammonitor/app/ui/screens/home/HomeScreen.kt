@@ -84,6 +84,12 @@ fun HomeScreen(
                     engine.importFromUri(it, updateArchived)
                 }
                 viewModel.importData(result)
+                if (result.success) {
+                    // Snapshot the imported dataset for the Changes menu.
+                    val timePart = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date())
+                    val now = "${com.nezammonitor.app.ui.screens.reportgen.todayJalali().format()} $timePart"
+                    withContext(Dispatchers.IO) { viewModel.saveSnapshot("ایمپورت از رایانه", now) }
+                }
                 viewModel.setImporting(false)
             }
         }
@@ -336,7 +342,8 @@ fun StatCard(
 ) {
     NezamCard(
         modifier = Modifier.fillMaxWidth(),
-        onClick = onClick
+        onClick = onClick,
+        copyText = "$title\n$count"
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
             Box(

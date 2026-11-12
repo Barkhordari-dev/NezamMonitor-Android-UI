@@ -40,6 +40,7 @@ import com.nezammonitor.app.ui.screens.settings.SettingsScreen
 import com.nezammonitor.app.ui.screens.export.ExportScreen
 import com.nezammonitor.app.ui.screens.update.UpdateScreen
 import com.nezammonitor.app.ui.screens.archive.ArchiveScreen
+import com.nezammonitor.app.ui.screens.changes.ChangesScreen
 import com.nezammonitor.app.ui.screens.reportgen.ReportGeneratorScreen
 import com.nezammonitor.app.ui.screens.reportgen.ScheduleSettingsScreen
 import com.nezammonitor.app.ui.screens.reportgen.ReportHelpScreen
@@ -380,6 +381,12 @@ fun NezamMonitorApp(viewModel: MainViewModel) {
                             onCaseClick = { caseNumber ->
                                 navController.navigate(Screen.ArchiveDetail.createRoute(caseNumber))
                             },
+                            onBack = { navController.popBackStack() }
+                        )
+                    }
+                    composable(Screen.Changes.route) {
+                        ChangesScreen(
+                            viewModel = viewModel,
                             onBack = { navController.popBackStack() }
                         )
                     }

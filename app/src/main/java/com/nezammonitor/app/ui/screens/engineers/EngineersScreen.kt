@@ -78,7 +78,11 @@ fun EngineersScreen(viewModel: MainViewModel, onCaseClick: (String) -> Unit) {
             items(caseGroups, key = { it.first.caseNumber }) { (case, caseEngineers) ->
                 NezamCard(
                     modifier = Modifier.fillMaxWidth(),
-                    onClick = { onCaseClick(case.caseNumber) }
+                    onClick = { onCaseClick(case.caseNumber) },
+                    copyText = "${case.caseNumber} — ${toPersianChars(case.owner)}\n" + caseEngineers.joinToString("\n") { "${toPersianChars(it.name)} (${toPersianChars(it.discipline)})" },
+                    extraItems = listOf(
+                        "👁 مشاهده جزئیات" to { onCaseClick(case.caseNumber) }
+                    )
                 ) {
                     Column(modifier = Modifier.padding(14.dp)) {
                         Row(

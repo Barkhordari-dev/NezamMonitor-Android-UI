@@ -9,6 +9,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -26,6 +27,7 @@ import com.nezammonitor.app.viewmodel.MainViewModel
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ArchiveScreen(viewModel: MainViewModel, onCaseClick: (String) -> Unit, onBack: () -> Unit) {
+    val context = LocalContext.current
     val archivedCases by viewModel.archivedCases.collectAsState()
     val cases by viewModel.cases.collectAsState()
     var selected by remember { mutableStateOf(setOf<String>()) }
@@ -90,7 +92,15 @@ fun ArchiveScreen(viewModel: MainViewModel, onCaseClick: (String) -> Unit, onBac
                     items(archivedCases, key = { it.caseNumber }) { case ->
                         NezamCard(
                             modifier = Modifier.fillMaxWidth(),
-                            onClick = { onCaseClick(case.caseNumber) }
+                            onClick = { onCaseClick(case.caseNumber) },
+                            copyText = "${case.caseNumber}\n${toPersianChars(case.owner)}${if (case.office.isNotBlank()) "\nدفتر: ${case.office}" else ""}",
+                            extraItems = listOf(
+                                "👁 مشاهده جزئیات" to { onCaseClick(case.caseNumber) },
+                                "↩️ بیرون بردن از بایگانی" to {
+                                    viewModel.unarchiveCases(listOf(case.caseNumber))
+                                    android.widget.Toast.makeText(context, "✅ «${toPersianChars(case.owner)}» از بایگانی بیرون برده شد", android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                            )
                         ) {
                             Row(
                                 modifier = Modifier.padding(12.dp).fillMaxWidth(),

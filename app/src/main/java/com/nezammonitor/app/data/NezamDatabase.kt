@@ -8,8 +8,8 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [CaseEntity::class, SpecificationEntity::class, EngineerEntity::class, FeeEntity::class, ReportEntity::class, FollowUpEditEntity::class, FeeReceiptEntity::class],
-    version = 5,
+    entities = [CaseEntity::class, SpecificationEntity::class, EngineerEntity::class, FeeEntity::class, ReportEntity::class, FollowUpEditEntity::class, FeeReceiptEntity::class, SnapshotEntity::class],
+    version = 6,
     exportSchema = false
 )
 abstract class NezamDatabase : RoomDatabase() {
@@ -86,6 +86,14 @@ abstract class NezamDatabase : RoomDatabase() {
             }
         }
 
+        // v6 adds the `snapshots` table (Changes menu). A plain CREATE TABLE:
+        // it is a new table, so no data to migrate and no validation risk.
+        private val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS `snapshots` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `createdAt` TEXT NOT NULL, `label` TEXT NOT NULL, `dataJson` TEXT NOT NULL, `caseCount` INTEGER NOT NULL, `feeCount` INTEGER NOT NULL, `reportCount` INTEGER NOT NULL)")
+            }
+        }
+
         fun getDatabase(context: Context): NezamDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -93,7 +101,7 @@ abstract class NezamDatabase : RoomDatabase() {
                     NezamDatabase::class.java,
                     "nezam_monitor.db"
                 )
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                 .fallbackToDestructiveMigration()
                 .build()
                 INSTANCE = instance

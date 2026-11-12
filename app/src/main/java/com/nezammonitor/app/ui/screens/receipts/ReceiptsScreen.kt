@@ -10,6 +10,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.nezammonitor.app.ui.components.NezamCard
 import com.nezammonitor.app.viewmodel.MainViewModel
 
 private fun formatAmount(amount: Long): String = "%,d".format(amount) + " ریال"
@@ -52,7 +53,10 @@ fun ReceiptsScreen(viewModel: MainViewModel) {
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             items(receipts, key = { it.id }) { r ->
-                Card(modifier = Modifier.fillMaxWidth()) {
+                NezamCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    copyText = "${r.receiptDate.ifBlank { "بدون تاریخ" }}\n${formatAmount(r.amount)}"
+                ) {
                     Column(modifier = Modifier.padding(14.dp)) {
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                             Column {

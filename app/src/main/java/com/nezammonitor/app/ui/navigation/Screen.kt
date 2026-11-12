@@ -31,6 +31,7 @@ sealed class Screen(val route: String, val title: String, val icon: String) {
     object ArchiveDetail : Screen("archive_detail/{caseNumber}", "جزئیات پرونده بایگانی\u200Cشده", "🗄️") {
         fun createRoute(caseNumber: String) = "archive_detail/${URLEncoder.encode(caseNumber, "UTF-8")}"
     }
+    object Changes : Screen("changes", "تغییرات", "📸")
     object Settings : Screen("settings", "تنظیمات", "⚙️")
     object Import : Screen("import", "ورود اطلاعات", "📥")
     object Export : Screen("export", "خروجی اکسل", "📤")
@@ -47,5 +48,6 @@ val drawerItems = listOf(
     Screen.Receipts,
     Screen.ReportGenerator,
     Screen.Archive,
+    Screen.Changes,
     Screen.Settings
 )

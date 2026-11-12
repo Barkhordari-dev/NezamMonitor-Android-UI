@@ -217,7 +217,15 @@ fun CasesScreen(viewModel: MainViewModel, onCaseClick: (String) -> Unit) {
             items(filtered, key = { it.caseNumber }) { case ->
                 NezamCard(
                     modifier = Modifier.fillMaxWidth(),
-                    onClick = { onCaseClick(case.caseNumber) }
+                    onClick = { onCaseClick(case.caseNumber) },
+                    copyText = "${case.caseNumber}\n${toPersianChars(case.owner)}${if (case.ownerMobile.isNotBlank()) "\n${case.ownerMobile}" else ""}",
+                    extraItems = listOf(
+                        "👁 مشاهده جزئیات" to { onCaseClick(case.caseNumber) },
+                        "📦 ارسال به بایگانی" to {
+                            viewModel.archiveCases(listOf(case.caseNumber))
+                            android.widget.Toast.makeText(context, "✅ «${toPersianChars(case.owner)}» به بایگانی ارسال شد", android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                    )
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Row(

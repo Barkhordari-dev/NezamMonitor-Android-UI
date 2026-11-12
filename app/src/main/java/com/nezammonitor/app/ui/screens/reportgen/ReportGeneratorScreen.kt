@@ -25,7 +25,10 @@ import androidx.core.content.FileProvider
 import com.nezammonitor.app.api.NezamApi
 import com.nezammonitor.app.api.toPersianChars
 import com.nezammonitor.app.data.*
+import com.nezammonitor.app.ui.components.NezamCard
 import com.nezammonitor.app.ui.components.NezamEmptyState
+import com.nezammonitor.app.ui.components.copyToClipboard
+import com.nezammonitor.app.ui.components.takeScreenshot
 import com.nezammonitor.app.ui.components.SectionTitle
 import com.nezammonitor.app.ui.components.personNameKey
 import com.nezammonitor.app.ui.components.reportStageLabel
@@ -374,6 +377,20 @@ fun ReportGeneratorScreen(viewModel: MainViewModel, initialTab: Int = 0, onBack:
                     expanded = archiveMenuCase == case.caseNumber,
                     onDismissRequest = { archiveMenuCase = null }
                 ) {
+                    DropdownMenuItem(
+                        text = { Text("📋 کپی کردن", fontSize = 13.sp) },
+                        onClick = {
+                            archiveMenuCase = null
+                            copyToClipboard(context, "${case.caseNumber}\n${toPersianChars(case.owner)}")
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("📸 اسکرین شات", fontSize = 13.sp) },
+                        onClick = {
+                            archiveMenuCase = null
+                            takeScreenshot(context)
+                        }
+                    )
                     DropdownMenuItem(
                         text = { Text("📦 ارسال به بایگانی", fontSize = 13.sp) },
                         onClick = {
@@ -1159,11 +1176,13 @@ private fun HistoryTab(
                     val record = item.record
                     val fileExists = File(record.filePath).exists()
                     val stageName = stageNameForNumber(record.stage)
-                    Card(
+                    NezamCard(
                         modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(
-                            containerColor = if (fileExists) MaterialTheme.colorScheme.surface
-                            else MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f)
+                        containerColor = if (fileExists) MaterialTheme.colorScheme.surface
+                        else MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f),
+                        copyText = "${record.caseNumber}\n${toPersianChars(record.owner)}\nگزارش مرحله $stageName — ${displayShamsiDate(record.createdAt + " " + record.createdTime)}",
+                        extraItems = listOf(
+                            "🖨️ چاپ" to { printLocalReport(record) }
                         )
                     ) {
                         Column(modifier = Modifier.padding(12.dp)) {
@@ -1235,9 +1254,14 @@ private fun HistoryTab(
                     val stageLabel = reportStageLabel(report.reportType, report.stage)
                     val title = toPersianChars(report.reportType.ifBlank { "گزارش" })
                     val isDownloading = downloadingId == report.id
-                    Card(
+                    NezamCard(
                         modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        copyText = "${report.caseNumber}\n${toPersianChars(item.owner)}\n$title${if (stageLabel.isNotBlank()) " - $stageLabel" else ""} — ${displayShamsiDate(report.visitDate)}",
+                        extraItems = listOf(
+                            "🖨️ چاپ" to { printWarningItem = item },
+                            "⬇️ دانلود و باز کردن" to { downloadAndOpen(report) }
+                        )
                     ) {
                         Column(modifier = Modifier.padding(12.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {

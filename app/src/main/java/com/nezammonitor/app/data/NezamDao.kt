@@ -139,4 +139,17 @@ interface NezamDao {
     suspend fun insertFeeReceipts(list: List<FeeReceiptEntity>)
     @Query("DELETE FROM fee_receipts")
     suspend fun deleteAllFeeReceipts()
+
+    // Snapshots (v6): one row per sync/import, holding the full dataset.
+    @Insert
+    suspend fun insertSnapshot(snapshot: SnapshotEntity): Long
+
+    @Query("SELECT * FROM snapshots ORDER BY id DESC")
+    fun getAllSnapshots(): Flow<List<SnapshotEntity>>
+
+    @Query("SELECT * FROM snapshots WHERE id = :id")
+    suspend fun getSnapshot(id: Long): SnapshotEntity?
+
+    @Query("DELETE FROM snapshots WHERE id IN (:ids)")
+    suspend fun deleteSnapshots(ids: List<Long>)
 }

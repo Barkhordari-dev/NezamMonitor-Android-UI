@@ -506,6 +506,8 @@ fun UpdateScreen(
                             val now = "${todayJalali().format()} $timePart"
                             prefs.edit().putString("last_update", now).apply()
                             lastUpdate = now
+                            // Snapshot the synced dataset for the Changes menu.
+                            com.nezammonitor.app.data.SnapshotStore.saveSnapshot(dao, "بروزرسانی از سامانه", now)
                             statusText = "✅ بروزرسانی کامل شد!\n${cases.size} پرونده | ${allEngineers.size} مهندس | ${allFees.size} حق‌الزحمه | ${allReports.size} گزارش | $downloadedFiles فایل"
                             progress = 1f
                         } catch (e: Exception) {

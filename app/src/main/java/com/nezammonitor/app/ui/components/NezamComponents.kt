@@ -3,9 +3,11 @@ package com.nezammonitor.app.ui.components
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,6 +30,8 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -38,10 +42,13 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
 import com.nezammonitor.app.api.toPersianChars
 import com.nezammonitor.app.data.FeeEntity
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -78,16 +85,23 @@ import com.nezammonitor.app.ui.theme.nezamSemantic
  * The standard card of the app: adapts to [CardStyle] (Glassmorphic, Elevated, or Flat)
  * and [CornerStyle] automatically.
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun NezamCard(
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null,
     containerColor: Color? = null,
+    // Long-press menu (optional): when copyText != null, a long-press shows
+    // «کپی کردن» + «اسکرین شات» + extraItems. The tap still runs onClick.
+    copyText: String? = null,
+    extraItems: List<Pair<String, () -> Unit>> = emptyList(),
     content: @Composable () -> Unit
 ) {
     val cardStyle = MaterialTheme.nezamCardStyle
     val scheme = MaterialTheme.colorScheme
     val extras = MaterialTheme.nezamExtras
+    val context = LocalContext.current
+    var menuExpanded by remember { mutableStateOf(false) }
 
     val resolvedColor = containerColor ?: when (cardStyle) {
         CardStyle.GLASS -> scheme.surface.copy(alpha = 0.82f)
@@ -107,16 +121,38 @@ fun NezamCard(
         CardStyle.FLAT -> CardDefaults.cardElevation(defaultElevation = 0.dp)
     }
 
-    val cardModifier = if (onClick != null) modifier.clickable { onClick() } else modifier
+    val cardModifier = when {
+        onClick != null && copyText != null -> modifier.combinedClickable(onClick = onClick, onLongClick = { menuExpanded = true })
+        onClick != null -> modifier.clickable { onClick() }
+        copyText != null -> modifier.combinedClickable(onClick = {}, onLongClick = { menuExpanded = true })
+        else -> modifier
+    }
 
     Card(
         modifier = cardModifier,
-        shape = MaterialTheme.shapes.medium,
         colors = CardDefaults.cardColors(containerColor = resolvedColor),
         border = resolvedBorder,
         elevation = resolvedElevation
     ) {
         content()
+        if (copyText != null) {
+            DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                DropdownMenuItem(
+                    text = { Text("📋 کپی کردن", fontSize = 13.sp) },
+                    onClick = { menuExpanded = false; copyToClipboard(context, copyText) }
+                )
+                DropdownMenuItem(
+                    text = { Text("📸 اسکرین شات", fontSize = 13.sp) },
+                    onClick = { menuExpanded = false; takeScreenshot(context) }
+                )
+                extraItems.forEach { (label, action) ->
+                    DropdownMenuItem(
+                        text = { Text(label, fontSize = 13.sp) },
+                        onClick = { menuExpanded = false; action() }
+                    )
+                }
+            }
+        }
     }
 }
 

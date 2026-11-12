@@ -158,7 +158,8 @@ private fun FeesTab(fees: List<FeeEntity>, cases: List<com.nezammonitor.app.data
                     NezamCard(
                         modifier = Modifier.fillMaxWidth(),
                         onClick = { selectedIds = if (isSelected) selectedIds - fee.id else selectedIds + fee.id },
-                        containerColor = if (isSelected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceVariant
+                        containerColor = if (isSelected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+                        copyText = "${fee.caseNumber} — ${toPersianChars(owner)}\n${feeTitle(fee, feesByCase[fee.caseNumber] ?: emptyList())}\n${formatAmountDisplay(fee.amount)}"
                     ) {
                         Row(modifier = Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
                             Checkbox(checked = isSelected, onCheckedChange = { c -> selectedIds = if (c) selectedIds + fee.id else selectedIds - fee.id })
@@ -244,7 +245,8 @@ private fun ReceiptsTab(receipts: List<FeeReceiptEntity>) {
                     NezamCard(
                         modifier = Modifier.fillMaxWidth(),
                         onClick = { selectedIds = if (isSelected) selectedIds - r.id else selectedIds + r.id },
-                        containerColor = if (isSelected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface
+                        containerColor = if (isSelected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface,
+                        copyText = "${r.receiptDate.ifBlank { "بدون تاریخ" }}\n${formatAmount(r.amount)}"
                     ) {
                         Column(modifier = Modifier.padding(12.dp)) {
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {

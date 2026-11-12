@@ -155,7 +155,10 @@ fun FollowUpScreen(viewModel: MainViewModel) {
                 var editingDescription by remember { mutableStateOf(false) }
                 var editedDesc by remember(item.description) { mutableStateOf(item.description) }
 
-                NezamCard(modifier = Modifier.fillMaxWidth()) {
+                NezamCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    copyText = "${item.caseNumber}\nمالک: ${toPersianChars(item.owner)}${if (item.mobile.isNotBlank()) "\nهمراه: ${item.mobile}" else ""}${if (item.description.isNotBlank()) "\nتوضیحات: ${item.description}" else ""}"
+                ) {
                     Column(modifier = Modifier.padding(14.dp)) {
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                             Column(modifier = Modifier.weight(1f)) {

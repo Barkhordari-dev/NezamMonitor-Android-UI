@@ -69,7 +69,14 @@ fun ReportsScreen(viewModel: MainViewModel, onCaseClick: (String) -> Unit = {}) 
                 }
             }
             items(groups, key = { it.first.caseNumber }) { (case, caseReports) ->
-                NezamCard(modifier = Modifier.fillMaxWidth(), onClick = { onCaseClick(case.caseNumber) }) {
+                NezamCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = { onCaseClick(case.caseNumber) },
+                    copyText = "${case.caseNumber} — ${toPersianChars(case.owner)}\n" + caseReports.joinToString("\n") { "${toPersianChars(it.reportType)} — ${toPersianChars(it.stage)} (${it.visitDate})" },
+                    extraItems = listOf(
+                        "👁 مشاهده جزئیات" to { onCaseClick(case.caseNumber) }
+                    )
+                ) {
                     Column(modifier = Modifier.padding(14.dp)) {
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                             Column {
