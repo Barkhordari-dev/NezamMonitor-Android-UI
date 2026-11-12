@@ -15,6 +15,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val db = NezamDatabase.getDatabase(application)
     private val dao = db.nezamDao()
 
+    // The caseNumbers of the archived cases, kept as a flow so the other
+    // lists can be filtered against it reactively.
+    // MUST stay declared before the `init` block below: `loadAllData()` (called
+    // from `init`) passes this flow to `combine(...)`, and a property declared
+    // after `init` is still null when `init` runs — that null flow made every
+    // version since 3.7.6 crash at launch (NullPointerException in
+    // combineInternal). Do not move this below `init`.
+    private val archivedNumbersFlow = MutableStateFlow<Set<String>>(emptySet())
+
     // Cases — non-archived only. Archived cases live in _archivedCases and
     // show nowhere else: their engineers/fees/reports/specs/follow-up edits
     // are filtered out here too, so every screen that reads these flows
@@ -127,10 +136,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         return listOf(match.role, match.discipline)
             .map { it.trim() }.filter { it.isNotEmpty() }.joinToString(" ")
     }
-
-    // The caseNumbers of the archived cases, kept as a flow so the other
-    // lists can be filtered against it reactively.
-    private val archivedNumbersFlow = MutableStateFlow<Set<String>>(emptySet())
 
     private fun loadAllData() {
         // One collector per Room flow: Room re-emits on every table change,

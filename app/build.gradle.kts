@@ -12,8 +12,8 @@ android {
         applicationId = "com.nezammonitor.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 62
-        versionName = "3.7.10"
+        versionCode = 63
+        versionName = "3.7.11"
     }
 
     buildToolsVersion = "34.0.0"
