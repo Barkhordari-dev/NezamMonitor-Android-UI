@@ -1,5 +1,6 @@
 package com.nezammonitor.app.ui.screens.home
 
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -74,8 +75,13 @@ fun HomeScreen(
             coroutineScope.launch {
                 viewModel.setImporting(true)
                 val engine = ImportEngine(context)
+                // The Update menu's "بروزرسانی پرونده‌های بایگانی‌شده"
+                // checkbox governs the import too: when off, archived cases
+                // are left untouched.
+                val updateArchived = context.getSharedPreferences("nezam_update", Context.MODE_PRIVATE)
+                    .getBoolean("update_archived", false)
                 val result = withContext(Dispatchers.IO) {
-                    engine.importFromUri(it)
+                    engine.importFromUri(it, updateArchived)
                 }
                 viewModel.importData(result)
                 viewModel.setImporting(false)

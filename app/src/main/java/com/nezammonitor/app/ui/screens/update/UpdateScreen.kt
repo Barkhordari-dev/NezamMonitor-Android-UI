@@ -96,6 +96,7 @@ fun UpdateScreen(
     // Report save path
     var reportPath by remember { mutableStateOf(prefs.getString("report_path", Environment.getExternalStorageDirectory().absolutePath) ?: Environment.getExternalStorageDirectory().absolutePath) }
     var downloadReports by remember { mutableStateOf(false) }
+    var updateArchived by remember { mutableStateOf(prefs.getBoolean("update_archived", false)) }
     var showPathDialog by remember { mutableStateOf(false) }
 
     Scaffold(
@@ -189,6 +190,17 @@ fun UpdateScreen(
                 Text("بروزرسانی گزارش‌ها (دانلود فایل‌ها)", fontSize = 14.sp)
             }
 
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Checkbox(
+                    checked = updateArchived,
+                    onCheckedChange = { updateArchived = it; prefs.edit().putBoolean("update_archived", it).apply() }
+                )
+                Text("بروزرسانی پرونده‌های بایگانی‌شده", fontSize = 14.sp)
+            }
+
             // Report save path
             Text("مسیر ذخیره‌سازی گزارش‌ها", fontWeight = FontWeight.Bold, fontSize = 16.sp)
 
@@ -265,12 +277,29 @@ fun UpdateScreen(
                             val db = NezamDatabase.getDatabase(context)
                             val dao = db.nezamDao()
 
+                            // Archived cases: when the "update archived" checkbox is
+                            // off, their data is left untouched (not deleted, not
+                            // re-inserted); when it is on, they update like the
+                            // rest but keep their archived flag.
+                            val archivedNumbers = dao.getArchivedCaseNumbers()
+                            val syncCases = if (updateArchived) apiCases else apiCases.filter {
+                                "${safe(it, "das_year")}/${safe(it, "das_number")}" !in archivedNumbers
+                            }
+
                             // Clear old data
-                            dao.deleteAllCases()
-                            dao.deleteAllSpecifications()
-                            dao.deleteAllEngineers()
-                            dao.deleteAllFees()
-                            dao.deleteAllReports()
+                            if (updateArchived || archivedNumbers.isEmpty()) {
+                                dao.deleteAllCases()
+                                dao.deleteAllSpecifications()
+                                dao.deleteAllEngineers()
+                                dao.deleteAllFees()
+                                dao.deleteAllReports()
+                            } else {
+                                dao.deleteNonArchivedCases()
+                                dao.deleteSpecificationsExceptArchived(archivedNumbers)
+                                dao.deleteEngineersExceptArchived(archivedNumbers)
+                                dao.deleteFeesExceptArchived(archivedNumbers)
+                                dao.deleteReportsExceptArchived(archivedNumbers)
+                            }
 
                             // Process cases
                             val cases = mutableListOf<CaseEntity>()
@@ -279,9 +308,9 @@ fun UpdateScreen(
                             val allFees = mutableListOf<FeeEntity>()
                             val allReports = mutableListOf<ReportEntity>()
 
-                            for ((index, apiCase) in apiCases.withIndex()) {
-                                progress = 0.2f + (0.5f * index / apiCases.size)
-                                statusText = "پرونده ${index + 1}/${apiCases.size}: ${safe(apiCase, "own_name")} ${safe(apiCase, "own_famil")}"
+                            for ((index, apiCase) in syncCases.withIndex()) {
+                                progress = 0.2f + (0.5f * index / syncCases.size)
+                                statusText = "پرونده ${index + 1}/${syncCases.size}: ${safe(apiCase, "own_name")} ${safe(apiCase, "own_famil")}"
 
                                 val caseNumber = "${safe(apiCase, "das_year")}/${safe(apiCase, "das_number")}"
                                 val serial = safe(apiCase, "das_serial")
@@ -321,7 +350,8 @@ fun UpdateScreen(
                                     discipline = safe(apiCase, "mas_title"),
                                     unitTitle = safe(apiCase, "db_title"),
                                     executionDate = safe(apiCase, "das_date_tarkhis"),
-                                    dbId = dbId
+                                    dbId = dbId,
+                                    archived = caseNumber in archivedNumbers
                                 ))
 
                                 // Specification
@@ -430,7 +460,7 @@ fun UpdateScreen(
                             statusText = "دانلود فایل‌های گزارش‌ها..."
                             progress = 0.85f
                             var caseNum = 0
-                            for ((index, apiCase) in apiCases.withIndex()) {
+                            for ((index, apiCase) in syncCases.withIndex()) {
                                 caseNum++
                                 val dbId = safe(apiCase, "db_id")
                                 if (dbId.toIntOrNull() == null) continue
@@ -464,9 +494,9 @@ fun UpdateScreen(
                                     } catch (_: Exception) {}
                                 }
 
-                                progress = 0.85f + (0.15f * (index + 1) / apiCases.size)
-                                if ((index + 1) % 10 == 0 || index == apiCases.size - 1) {
-                                    statusText = "دانلود فایل‌ها: ${index + 1}/${apiCases.size} ($downloadedFiles فایل)"
+                                progress = 0.85f + (0.15f * (index + 1) / syncCases.size)
+                                if ((index + 1) % 10 == 0 || index == syncCases.size - 1) {
+                                    statusText = "دانلود فایل‌ها: ${index + 1}/${syncCases.size} ($downloadedFiles فایل)"
                                 }
                             }
                             } // end downloadReports

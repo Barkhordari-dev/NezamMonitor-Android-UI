@@ -20,6 +20,34 @@ interface NezamDao {
     
     @Query("DELETE FROM cases")
     suspend fun deleteAllCases()
+
+    // Archive (v5): archived cases show nowhere else in the app.
+    @Query("SELECT * FROM cases WHERE archived = 1 ORDER BY id ASC")
+    fun getArchivedCases(): Flow<List<CaseEntity>>
+
+    @Query("SELECT caseNumber FROM cases WHERE archived = 1")
+    suspend fun getArchivedCaseNumbers(): List<String>
+
+    @Query("UPDATE cases SET archived = :archived WHERE caseNumber = :caseNumber")
+    suspend fun setCaseArchived(caseNumber: String, archived: Boolean)
+
+    @Query("DELETE FROM cases WHERE archived = 0")
+    suspend fun deleteNonArchivedCases()
+
+    @Query("DELETE FROM engineers WHERE caseNumber NOT IN (:archived)")
+    suspend fun deleteEngineersExceptArchived(archived: List<String>)
+
+    @Query("DELETE FROM fees WHERE caseNumber NOT IN (:archived)")
+    suspend fun deleteFeesExceptArchived(archived: List<String>)
+
+    @Query("DELETE FROM reports WHERE caseNumber NOT IN (:archived)")
+    suspend fun deleteReportsExceptArchived(archived: List<String>)
+
+    @Query("DELETE FROM specifications WHERE caseNumber NOT IN (:archived)")
+    suspend fun deleteSpecificationsExceptArchived(archived: List<String>)
+
+    @Query("DELETE FROM followup_edits WHERE caseNumber NOT IN (:archived)")
+    suspend fun deleteFollowUpEditsExceptArchived(archived: List<String>)
     
     // Specifications
     @Query("SELECT * FROM specifications WHERE caseNumber = :caseNumber")

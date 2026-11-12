@@ -29,7 +29,12 @@ class ImportEngine(private val context: Context) {
         return if (raw.isNotEmpty() && raw[0] == '\uFEFF') raw.substring(1) else raw
     }
     
-    suspend fun importFromUri(uri: Uri): ImportResult = withContext(Dispatchers.IO) {
+    /** Imports a .nzmdata package. When [updateArchived] is false (the
+     *  "بروزرسانی پرونده‌های بایگانی‌شده" checkbox in the Update menu),
+     *  archived cases are left untouched: their rows are not deleted and
+     *  their data is not re-inserted. When true, they update like the rest
+     *  but keep their archived flag. */
+    suspend fun importFromUri(uri: Uri, updateArchived: Boolean = false): ImportResult = withContext(Dispatchers.IO) {
         try {
             val tempFile = File(context.cacheDir, "import_temp.nzmdata")
             context.contentResolver.openInputStream(uri)?.use { input ->
@@ -73,16 +78,29 @@ class ImportEngine(private val context: Context) {
                 return@withContext ImportResult(false, "Package contains no cases")
             }
             
+            val archivedNumbers = dao.getArchivedCaseNumbers()
+            val importCases = if (updateArchived) exportData.cases
+                else exportData.cases.filter { it.caseNumber !in archivedNumbers }
+
             db.withTransaction {
-                dao.deleteAllFollowUpEdits()
-                dao.deleteAllReports()
-                dao.deleteAllFees()
-                dao.deleteAllEngineers()
-                dao.deleteAllSpecifications()
-                dao.deleteAllCases()
+                if (updateArchived || archivedNumbers.isEmpty()) {
+                    dao.deleteAllFollowUpEdits()
+                    dao.deleteAllReports()
+                    dao.deleteAllFees()
+                    dao.deleteAllEngineers()
+                    dao.deleteAllSpecifications()
+                    dao.deleteAllCases()
+                } else {
+                    dao.deleteFollowUpEditsExceptArchived(archivedNumbers)
+                    dao.deleteReportsExceptArchived(archivedNumbers)
+                    dao.deleteFeesExceptArchived(archivedNumbers)
+                    dao.deleteEngineersExceptArchived(archivedNumbers)
+                    dao.deleteSpecificationsExceptArchived(archivedNumbers)
+                    dao.deleteNonArchivedCases()
+                }
                 try { dao.deleteAllFeeReceipts() } catch (_: Exception) {}
-                
-                val cases = exportData.cases.map { ec ->
+
+                val cases = importCases.map { ec ->
                     CaseEntity(
                         caseNumber = ec.caseNumber, serial = ec.serial,
                         owner = ec.owner, ownerMobile = ec.ownerMobile,
@@ -102,12 +120,13 @@ class ImportEngine(private val context: Context) {
                         issuer = ec.issuer, stateTitle = ec.stateTitle,
                         workType = ec.workType, discipline = ec.discipline,
                         unitTitle = ec.unitTitle, orderPart = ec.orderPart,
-                        executionDate = ec.executionDate, dbId = ec.dbId
+                        executionDate = ec.executionDate, dbId = ec.dbId,
+                        archived = ec.caseNumber in archivedNumbers
                     )
                 }
                 dao.insertCases(cases)
-                
-                val specs = exportData.cases.filter { it.specification != null }.map { ec ->
+
+                val specs = importCases.filter { it.specification != null }.map { ec ->
                     val s = ec.specification!!
                     SpecificationEntity(
                         caseNumber = ec.caseNumber, address = s.address,
@@ -126,14 +145,14 @@ class ImportEngine(private val context: Context) {
                 }
                 dao.insertSpecifications(specs)
                 
-                val engineers = exportData.cases.flatMap { ec ->
+                val engineers = importCases.flatMap { ec ->
                     ec.engineers.map { ee ->
                         EngineerEntity(caseNumber = ec.caseNumber, discipline = ee.discipline, name = ee.name, role = ee.role, phone = ee.phone, designLevel = ee.designLevel, supervisionLevel = ee.supervisionLevel, executionLevel = ee.executionLevel)
                     }
                 }
                 dao.insertEngineers(engineers)
                 
-                val fees = exportData.cases.flatMap { ec ->
+                val fees = importCases.flatMap { ec ->
                     ec.fees.map { ef ->
                         // The Windows export stores amountType as the raw code
                         // ("n"/"b"/"ho"/"t"/"pn") and confirmStatus sometimes as a bare
@@ -160,7 +179,7 @@ class ImportEngine(private val context: Context) {
                 }
                 dao.insertFees(fees)
                 
-                val reports = exportData.cases.flatMap { ec ->
+                val reports = importCases.flatMap { ec ->
                     ec.reports.map { er ->
                         ReportEntity(
                             caseNumber = ec.caseNumber, rowNo = er.rowNo,
@@ -173,7 +192,7 @@ class ImportEngine(private val context: Context) {
                 }
                 dao.insertReports(reports)
                 
-                val edits = exportData.cases.filter { it.followUpEdit != null }.map { ec ->
+                val edits = importCases.filter { it.followUpEdit != null }.map { ec ->
                     val f = ec.followUpEdit!!
                     FollowUpEditEntity(
                         caseNumber = ec.caseNumber, description = f.description,
@@ -192,10 +211,10 @@ class ImportEngine(private val context: Context) {
                 }
             }
             
-            val casesCount = exportData.cases.size
-            val engineersCount = exportData.cases.sumOf { it.engineers.size }
-            val feesCount = exportData.cases.sumOf { it.fees.size }
-            val reportsCount = exportData.cases.sumOf { it.reports.size }
+            val casesCount = importCases.size
+            val engineersCount = importCases.sumOf { it.engineers.size }
+            val feesCount = importCases.sumOf { it.fees.size }
+            val reportsCount = importCases.sumOf { it.reports.size }
             val receiptsCount = exportData.feeReceipts.size
             val msg = if (receiptsCount > 0) "$casesCount پرونده، $engineersCount مهندس، $feesCount حق\u200Cالزحمه، $reportsCount گزارش، $receiptsCount دریافتی وارد شد" else "$casesCount پرونده، $engineersCount مهندس، $feesCount حق\u200Cالزحمه، $reportsCount گزارش وارد شد"
             val counts = ImportResult(true, msg, casesCount, engineersCount, feesCount, reportsCount, receiptsCount)

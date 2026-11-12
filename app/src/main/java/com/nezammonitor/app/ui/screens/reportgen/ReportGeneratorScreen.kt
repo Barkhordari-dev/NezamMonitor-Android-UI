@@ -2,7 +2,9 @@ package com.nezammonitor.app.ui.screens.reportgen
 
 import android.content.Context
 import android.content.Intent
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -38,7 +40,7 @@ import java.io.*
 import java.text.SimpleDateFormat
 import java.util.*
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun ReportGeneratorScreen(viewModel: MainViewModel, initialTab: Int = 0, onBack: () -> Unit, onNavigateToUpdate: () -> Unit = {}, onNavigateToSchedule: () -> Unit = {}, onNavigateToHelp: () -> Unit = {}) {
     val context = LocalContext.current
@@ -98,6 +100,8 @@ fun ReportGeneratorScreen(viewModel: MainViewModel, initialTab: Int = 0, onBack:
     var statusText by remember { mutableStateOf("") }
     var resultFiles by remember { mutableStateOf(listOf<File>()) }
     var showDuplicateWarning by remember { mutableStateOf(false) }
+    // Long-press archive menu: which case's menu is open (null = none).
+    var archiveMenuCase by remember { mutableStateOf<String?>(null) }
     // Local generation history (SharedPreferences) — refreshed after each generation
     var localHistory by remember { mutableStateOf(loadReportHistory(context)) }
 
@@ -124,7 +128,8 @@ fun ReportGeneratorScreen(viewModel: MainViewModel, initialTab: Int = 0, onBack:
                     stage = selectedStage,
                     useLtr = useLtr,
                     templatesDir = templatesDir,
-                    outputsDir = outputsDir
+                    outputsDir = outputsDir,
+                    userName = userName
                 )
             }
             resultFiles = result.files
@@ -291,7 +296,10 @@ fun ReportGeneratorScreen(viewModel: MainViewModel, initialTab: Int = 0, onBack:
                     }
                     map
                 }
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().clickable(enabled = eligible) { selectedCases = if (case.caseNumber in selectedCases) selectedCases - case.caseNumber else selectedCases + case.caseNumber }) {
+                // Long-press a row for the archive menu (combinedClickable
+                // needs ExperimentalFoundationApi in this Compose version).
+                Box(modifier = Modifier.fillMaxWidth()) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().combinedClickable(enabled = eligible, onClick = { selectedCases = if (case.caseNumber in selectedCases) selectedCases - case.caseNumber else selectedCases + case.caseNumber }, onLongClick = { archiveMenuCase = case.caseNumber })) {
                     Checkbox(checked = case.caseNumber in selectedCases, enabled = eligible, onCheckedChange = { if (eligible) selectedCases = if (case.caseNumber in selectedCases) selectedCases - case.caseNumber else selectedCases + case.caseNumber })
                     Column(modifier = Modifier.weight(1f)) {
                         Text(toPersianChars(case.owner), fontSize = 14.sp)
@@ -332,6 +340,21 @@ fun ReportGeneratorScreen(viewModel: MainViewModel, initialTab: Int = 0, onBack:
                         }
                     }
                 }
+                DropdownMenu(
+                    expanded = archiveMenuCase == case.caseNumber,
+                    onDismissRequest = { archiveMenuCase = null }
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("📦 ارسال به بایگانی", fontSize = 13.sp) },
+                        onClick = {
+                            archiveMenuCase = null
+                            selectedCases = selectedCases - case.caseNumber
+                            viewModel.archiveCases(listOf(case.caseNumber))
+                            statusText = "✅ «${toPersianChars(case.owner)}» به بایگانی ارسال شد"
+                        }
+                    )
+                }
+                }
             }
 
             if (statusText.isNotEmpty()) {
@@ -368,7 +391,7 @@ fun ReportGeneratorScreen(viewModel: MainViewModel, initialTab: Int = 0, onBack:
 
 private data class GenerateResult(val files: List<File>, val message: String)
 
-private fun generateReports(context: Context, cases: List<CaseEntity>, allCases: List<CaseEntity>, engineers: List<EngineerEntity>, specs: List<SpecificationEntity>, stage: Int, useLtr: Boolean, templatesDir: File, outputsDir: File): GenerateResult {
+private fun generateReports(context: Context, cases: List<CaseEntity>, allCases: List<CaseEntity>, engineers: List<EngineerEntity>, specs: List<SpecificationEntity>, stage: Int, useLtr: Boolean, templatesDir: File, outputsDir: File, userName: String = ""): GenerateResult {
     val files = mutableListOf<File>()
     val stageName = stageNameForNumber(stage)
     // Template preference: "<discipline> مرحله X.docx" for the disciplines of the
@@ -407,7 +430,7 @@ private fun generateReports(context: Context, cases: List<CaseEntity>, allCases:
 
         try {
             templateFile.copyTo(outputFile, overwrite = true)
-            replacePlaceholders(outputFile, case, spec, caseEngineers, persianDate, useLtr)
+            replacePlaceholders(outputFile, case, spec, caseEngineers, persianDate, useLtr, userName)
             files.add(outputFile)
             count++
 
@@ -447,16 +470,16 @@ private fun findTemplate(templatesDir: File, stageName: String, disciplines: Lis
     return templatesDir.listFiles { f -> f.name.endsWith(".docx") }?.firstOrNull { it.name.contains(stageName) }
 }
 
-private fun replacePlaceholders(docxFile: File, case: CaseEntity, spec: SpecificationEntity?, engineers: List<EngineerEntity>, persianDate: String, useLtr: Boolean) {
+private fun replacePlaceholders(docxFile: File, case: CaseEntity, spec: SpecificationEntity?, engineers: List<EngineerEntity>, persianDate: String, useLtr: Boolean, userName: String = "") {
     try {
         val doc = XWPFDocument(FileInputStream(docxFile))
-        for (para in doc.paragraphs) replaceInParagraph(para, case, spec, engineers, persianDate, useLtr)
-        for (table in doc.tables) for (row in table.rows) for (cell in row.tableCells) for (para in cell.paragraphs) replaceInParagraph(para, case, spec, engineers, persianDate, useLtr)
+        for (para in doc.paragraphs) replaceInParagraph(para, case, spec, engineers, persianDate, useLtr, userName)
+        for (table in doc.tables) for (row in table.rows) for (cell in row.tableCells) for (para in cell.paragraphs) replaceInParagraph(para, case, spec, engineers, persianDate, useLtr, userName)
         FileOutputStream(docxFile).use { doc.write(it) }; doc.close()
     } catch (_: Exception) {}
 }
 
-private fun replaceInParagraph(para: org.apache.poi.xwpf.usermodel.XWPFParagraph, case: CaseEntity, spec: SpecificationEntity?, engineers: List<EngineerEntity>, persianDate: String, useLtr: Boolean) {
+private fun replaceInParagraph(para: org.apache.poi.xwpf.usermodel.XWPFParagraph, case: CaseEntity, spec: SpecificationEntity?, engineers: List<EngineerEntity>, persianDate: String, useLtr: Boolean, userName: String = "") {
     val runs = para.runs; if (runs.isEmpty()) return
     var fullText = runs.joinToString("") { it.text() }
 
@@ -467,6 +490,7 @@ private fun replaceInParagraph(para: org.apache.poi.xwpf.usermodel.XWPFParagraph
         "«تعداد_بلوک»" to (spec?.blockCount ?: ""), "«نوع_کاربری»" to (spec?.usageType ?: ""),
         "«نوع_سازه»" to (spec?.structureType ?: ""), "«گروه_ساختمانی»" to (spec?.buildingGroup ?: ""),
         "«تعداد_طبقات»" to (spec?.floors ?: ""), "«مالک»" to case.owner,
+        "«نام ناظر»" to toPersianChars(userName),
         "«هماهنگکننده»" to (engineers.firstOrNull { it.discipline.contains("هماهنگ") }?.name ?: ""),
         "«ناظر_معماری»" to (engineers.firstOrNull { it.discipline.contains("معمار") }?.name ?: ""),
         "«ناظر_عمران»" to (engineers.firstOrNull { it.discipline.contains("عمران") }?.name ?: ""),

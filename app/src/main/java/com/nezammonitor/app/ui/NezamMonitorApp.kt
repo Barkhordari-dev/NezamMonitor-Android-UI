@@ -39,6 +39,7 @@ import com.nezammonitor.app.ui.screens.reports.ReportsScreen
 import com.nezammonitor.app.ui.screens.settings.SettingsScreen
 import com.nezammonitor.app.ui.screens.export.ExportScreen
 import com.nezammonitor.app.ui.screens.update.UpdateScreen
+import com.nezammonitor.app.ui.screens.archive.ArchiveScreen
 import com.nezammonitor.app.ui.screens.reportgen.ReportGeneratorScreen
 import com.nezammonitor.app.ui.screens.reportgen.ScheduleSettingsScreen
 import com.nezammonitor.app.ui.screens.reportgen.ReportHelpScreen
@@ -372,6 +373,24 @@ fun NezamMonitorApp(viewModel: MainViewModel) {
                     }
                     composable(Screen.ReportHelp.route) {
                         ReportHelpScreen(onBack = { navController.popBackStack() })
+                    }
+                    composable(Screen.Archive.route) {
+                        ArchiveScreen(
+                            viewModel = viewModel,
+                            onCaseClick = { caseNumber ->
+                                navController.navigate(Screen.ArchiveDetail.createRoute(caseNumber))
+                            },
+                            onBack = { navController.popBackStack() }
+                        )
+                    }
+                    composable(
+                        route = Screen.ArchiveDetail.route,
+                        arguments = listOf(navArgument("caseNumber") { type = NavType.StringType })
+                    ) { backStackEntry ->
+                        val encoded = backStackEntry.arguments?.getString("caseNumber") ?: ""
+                        val caseNumber = try { URLDecoder.decode(encoded, "UTF-8") } catch (e: Exception) { encoded }
+                        LaunchedEffect(caseNumber) { viewModel.loadCaseDetail(caseNumber, includeArchived = true) }
+                        CaseDetailScreen(viewModel = viewModel, onBack = { navController.popBackStack() })
                     }
                     composable(Screen.Settings.route) {
                         SettingsScreen(viewModel = viewModel)

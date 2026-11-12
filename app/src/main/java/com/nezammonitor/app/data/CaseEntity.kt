@@ -43,7 +43,11 @@ data class CaseEntity(
     val unitTitle: String = "",
     val orderPart: String = "",
     val executionDate: String = "",
-    val dbId: String = ""
+    val dbId: String = "",
+    /** Archived by the user (Archive menu): archived cases show nowhere else
+     *  in the app. Survives sync/import — the sync and import preserve this
+     *  flag for cases that already have it. */
+    val archived: Boolean = false
 )
 
 @Entity(tableName = "specifications")

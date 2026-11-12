@@ -15,9 +15,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val db = NezamDatabase.getDatabase(application)
     private val dao = db.nezamDao()
 
-    // Cases
+    // Cases — non-archived only. Archived cases live in _archivedCases and
+    // show nowhere else: their engineers/fees/reports/specs/follow-up edits
+    // are filtered out here too, so every screen that reads these flows
+    // automatically hides archived cases.
     private val _cases = MutableStateFlow<List<CaseEntity>>(emptyList())
     val cases: StateFlow<List<CaseEntity>> = _cases.asStateFlow()
+
+    private val _archivedCases = MutableStateFlow<List<CaseEntity>>(emptyList())
+    val archivedCases: StateFlow<List<CaseEntity>> = _archivedCases.asStateFlow()
 
     private val _caseDetail = MutableStateFlow<CaseEntity?>(null)
     val caseDetail: StateFlow<CaseEntity?> = _caseDetail.asStateFlow()
@@ -118,27 +124,48 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             .map { it.trim() }.filter { it.isNotEmpty() }.joinToString(" ")
     }
 
+    // The caseNumbers of the archived cases, kept as a flow so the other
+    // lists can be filtered against it reactively.
+    private val archivedNumbersFlow = MutableStateFlow<Set<String>>(emptySet())
+
     private fun loadAllData() {
+        // One collector per Room flow: Room re-emits on every table change,
+        // so the filtered flows stay current after a sync or an import
+        // without re-starting collectors. (Previously importData()
+        // re-started them all.) The archived set comes from the cases
+        // flow; each list flow combines with it and filters itself.
         viewModelScope.launch {
-            dao.getAllCases().distinctUntilChanged().collect { _cases.value = it }
-        }
-        viewModelScope.launch {
-            dao.getAllEngineers().distinctUntilChanged().collect {
-                _engineers.value = it
-                refreshUserRole()
+            dao.getAllCases().distinctUntilChanged().collect { cases ->
+                _cases.value = cases.filter { !it.archived }
+                _archivedCases.value = cases.filter { it.archived }
+                archivedNumbersFlow.value = cases.filter { it.archived }.map { it.caseNumber }.toSet()
             }
         }
         viewModelScope.launch {
-            dao.getAllFees().distinctUntilChanged().collect { _fees.value = it }
+            combine(dao.getAllEngineers(), archivedNumbersFlow) { list, archived ->
+                _engineers.value = list.filter { it.caseNumber !in archived }
+                refreshUserRole()
+            }.collect()
         }
         viewModelScope.launch {
-            dao.getAllReports().distinctUntilChanged().collect { _reports.value = it }
+            combine(dao.getAllFees(), archivedNumbersFlow) { list, archived ->
+                _fees.value = list.filter { it.caseNumber !in archived }
+            }.collect()
         }
         viewModelScope.launch {
-            dao.getAllFollowUpEdits().distinctUntilChanged().collect { _followUpEdits.value = it }
+            combine(dao.getAllReports(), archivedNumbersFlow) { list, archived ->
+                _reports.value = list.filter { it.caseNumber !in archived }
+            }.collect()
         }
         viewModelScope.launch {
-            dao.getAllSpecifications().distinctUntilChanged().collect { _specifications.value = it }
+            combine(dao.getAllSpecifications(), archivedNumbersFlow) { list, archived ->
+                _specifications.value = list.filter { it.caseNumber !in archived }
+            }.collect()
+        }
+        viewModelScope.launch {
+            combine(dao.getAllFollowUpEdits(), archivedNumbersFlow) { list, archived ->
+                _followUpEdits.value = list.filter { it.caseNumber !in archived }
+            }.collect()
         }
         viewModelScope.launch {
             dao.getAllFeeReceipts().distinctUntilChanged().collect { _feeReceipts.value = it }
@@ -149,9 +176,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         return _specifications.value.find { it.caseNumber == caseNumber }
     }
 
-    fun loadCaseDetail(caseNumber: String) {
+    fun loadCaseDetail(caseNumber: String, includeArchived: Boolean = false) {
         viewModelScope.launch {
-            val case = _cases.value.find { it.caseNumber == caseNumber }
+            val case = if (includeArchived) {
+                (_cases.value + _archivedCases.value).find { it.caseNumber == caseNumber }
+            } else {
+                _cases.value.find { it.caseNumber == caseNumber }
+            }
             _caseDetail.value = case
             _caseSpec.value = dao.getSpecification(caseNumber)
             _caseEngineers.value = dao.getEngineersForCase(caseNumber)
@@ -160,19 +191,34 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /** Send cases to the archive (they disappear from every other menu). */
+    fun archiveCases(caseNumbers: List<String>) {
+        viewModelScope.launch {
+            caseNumbers.forEach { dao.setCaseArchived(it, true) }
+        }
+    }
+
+    /** Bring cases back out of the archive. */
+    fun unarchiveCases(caseNumbers: List<String>) {
+        viewModelScope.launch {
+            caseNumbers.forEach { dao.setCaseArchived(it, false) }
+        }
+    }
+
     fun searchCases(query: String) {
         viewModelScope.launch {
             if (query.isBlank()) {
-                dao.getAllCases().first().let { _cases.value = it }
+                dao.getAllCases().first().let { _cases.value = it.filter { c -> !c.archived } }
             } else {
-                dao.searchCases(query).first().let { _cases.value = it }
+                dao.searchCases(query).first().let { _cases.value = it.filter { c -> !c.archived } }
             }
         }
     }
 
     fun importData(result: ImportResult) {
+        // The Room flows in loadAllData() re-emit on their own when the
+        // import writes to the database — no need to re-start collectors.
         _importResult.value = result
-        loadAllData()
     }
 
     fun clearImportResult() {
