@@ -63,9 +63,11 @@ import kotlin.math.roundToInt
  * a grey header row, the "توضیحات" row has a 242pt minimum height, and the
  * ☐ checkbox character (U+2610, Segoe UI Symbol in the template) is drawn
  * as a stroked empty square because the Android system font has no glyph
- * for it. Floating (anchored, behind-text) pictures such as the template's
- * two background logos are NOT in POI's embedded-pictures list, so they
- * are skipped; inline pictures are drawn scaled to fit.
+ * for it. Floating (wp:anchor) pictures — the template's two header logos
+ * and the signature — are drawn as overlays at their anchor position
+ * (behindDoc pictures behind the text, the way Word renders them); they
+ * take no flow space, so they never push the footer onto a second page.
+ * Inline pictures are drawn scaled to fit, as flow blocks under the text.
  *
  * Text is drawn with the bundled B Nazanin (assets/fonts/) — the
  * template's own font, so the PDF text looks like the Word file; bold
@@ -180,6 +182,7 @@ private class DocxPdfRenderer(
                 }
             }
         }
+        drawPendingFront()
         page?.let { pdf.finishPage(it) }
         page = null
     }
@@ -204,6 +207,7 @@ private class DocxPdfRenderer(
     }
 
     private fun newPage() {
+        drawPendingFront()
         page?.let { pdf.finishPage(it) }
         pageNumber++
         val info = PdfDocument.PageInfo.Builder(pageWidth.toInt(), pageHeight.toInt(), pageNumber).create()
@@ -232,9 +236,39 @@ private class DocxPdfRenderer(
 
     private class PictureBlock(val bitmap: Bitmap, val width: Float, override val height: Float) : ContentBlock
 
+    /** A floating (wp:anchor) picture: drawn as an overlay at its anchor
+     *  position, taking NO flow space — the way Word renders it.
+     *  [posHFrom] is the anchor's horizontal reference ("column", "margin"
+     *  or "page"); [offsetH] is the horizontal offset (pt) from that
+     *  reference's left edge (or null when the anchor uses [alignH]
+     *  instead: "center"/"right"/"left"). [posVFrom] is the vertical
+     *  reference ("paragraph", "line", "margin" or "page"); [offsetV] is
+     *  the vertical offset (pt) from the anchor paragraph's first-line top.
+     *  [behindDoc] pictures are painted before the text they overlap. */
+    private class FloatingPicture(
+        val bitmap: Bitmap,
+        val widthPt: Float,
+        val heightPt: Float,
+        val posHFrom: String,
+        val offsetH: Float?,
+        val alignH: String?,
+        val posVFrom: String,
+        val offsetV: Float,
+        val behindDoc: Boolean
+    )
+
     /** A measured paragraph: its blocks, and the x/width they are drawn at
-     *  (indents already applied). */
-    private class ParaContent(val blocks: List<ContentBlock>, val x: Float, val width: Float) {
+     *  (indents already applied). [floating] are the paragraph's anchored
+     *  pictures (overlays, no flow space); [spacingBeforePt] is the gap
+     *  before the paragraph's first line — the anchor's vertical reference
+     *  is the first line's top, i.e. box top + spacingBeforePt. */
+    private class ParaContent(
+        val blocks: List<ContentBlock>,
+        val x: Float,
+        val width: Float,
+        val floating: List<FloatingPicture> = emptyList(),
+        val spacingBeforePt: Float = 0f
+    ) {
         val height: Float get() = blocks.sumOf { it.height.toDouble() }.toFloat()
     }
 
@@ -254,13 +288,14 @@ private class DocxPdfRenderer(
         }
         blocks.addAll(built.pictures)
         if (spacingAfter > 0) blocks.add(GapBlock(spacingAfter))
-        return ParaContent(blocks, built.x, built.width)
+        return ParaContent(blocks, built.x, built.width, built.floating, spacingBefore)
     }
 
     private class BuiltText(
         val layout: StaticLayout?,
         val marks: List<CheckMark>,
         val pictures: List<PictureBlock>,
+        val floating: List<FloatingPicture>,
         val x: Float,
         val width: Float
     )
@@ -269,6 +304,7 @@ private class DocxPdfRenderer(
         val sb = SpannableStringBuilder()
         val marks = mutableListOf<CheckMark>()
         val pictures = mutableListOf<PictureBlock>()
+        val floatingPictures = mutableListOf<FloatingPicture>()
         var maxSize = DEFAULT_SIZE_PT
         val runs = try {
             para.runs
@@ -333,15 +369,19 @@ private class DocxPdfRenderer(
                 } catch (_: Exception) {
                 }
             }
-            // Pictures in this run, best-effort: drawn as blocks under the text.
+            // Pictures in this run, best-effort. Inline drawings become
+            // flow blocks under the text; anchored (floating) drawings
+            // become overlays at their anchor position and take no flow
+            // space — the way Word renders them.
             try {
-                for (pic in run.embeddedPictures) {
-                    pictureBlock(pic, width)?.let { pictures.add(it) }
+                extractRunPictures(run, width)?.let { (inline, floating) ->
+                    pictures.addAll(inline)
+                    floatingPictures.addAll(floating)
                 }
             } catch (_: Exception) {
             }
         }
-        if (sb.isEmpty()) return BuiltText(null, marks, pictures, x, width)
+        if (sb.isEmpty()) return BuiltText(null, marks, pictures, floatingPictures, x, width)
         val isRtl = paragraphIsRtl(para, sb)
         val (align, justify) = paragraphAlignment(para)
         // Indents: for RTL paragraphs Word mirrors them — the "left" indent
@@ -361,7 +401,7 @@ private class DocxPdfRenderer(
             .setLineSpacing(lineExtra, lineMult)
             .setIncludePad(true)
         if (justify) builder.setJustificationMode(Layout.JUSTIFICATION_MODE_INTER_WORD)
-        return BuiltText(builder.build(), marks, pictures, adjX, adjWidth)
+        return BuiltText(builder.build(), marks, pictures, floatingPictures, adjX, adjWidth)
     }
 
     /** POI returns the size in points (getFontSize() == getFontSizeAsDouble()
@@ -431,14 +471,36 @@ private class DocxPdfRenderer(
     /** Indents are page geometry, not font size: they do not scale. */
     private fun spacingTwips(twentieths: Int): Float = if (twentieths > 0) twentieths / 20f else 0f
 
-    private fun pictureBlock(pic: XWPFPicture, maxWidth: Float): PictureBlock? {
+    /** Decodes picture bytes at print resolution: the target size in pixels
+     *  at 300 dpi, so a picture never decodes below what the printed page
+     *  needs. (The old code divided raw PIXELS by target POINTS — a unit
+     *  mix-up that decoded the 321px signature at 107px.) The sample is a
+     *  power of two; the decoded bitmap is capped at 2048px on its long
+     *  side so a huge photo cannot OOM the app. */
+    private fun decodeBitmap(data: ByteArray, targetW: Float, targetH: Float): Bitmap? {
         return try {
-            val data = pic.pictureData?.data ?: return null
             val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
             BitmapFactory.decodeByteArray(data, 0, data.size, bounds)
             val rawW = bounds.outWidth
             val rawH = bounds.outHeight
             if (rawW <= 0 || rawH <= 0) return null
+            val targetPxW = max(1, (targetW * 300f / 72f).roundToInt())
+            val targetPxH = max(1, (targetH * 300f / 72f).roundToInt())
+            // Largest power-of-two sample that still decodes at or above
+            // the print-resolution target.
+            var sample = 1
+            while (rawW / (sample * 2) >= targetPxW && rawH / (sample * 2) >= targetPxH) sample *= 2
+            while (max(rawW / sample, rawH / sample) > 2048) sample *= 2
+            val options = BitmapFactory.Options().apply { inSampleSize = sample }
+            BitmapFactory.decodeByteArray(data, 0, data.size, options)
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    private fun pictureBlock(pic: XWPFPicture, maxWidth: Float): PictureBlock? {
+        return try {
+            val data = pic.pictureData?.data ?: return null
             // Extent from the drawing (EMU -> pt); fall back to the
             // intrinsic size at 96 dpi.
             var wPt = 0f
@@ -452,17 +514,131 @@ private class DocxPdfRenderer(
             } catch (_: Exception) {
             }
             if (wPt <= 0 || hPt <= 0) {
-                wPt = rawW * 72f / 96f
-                hPt = rawH * 72f / 96f
+                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                BitmapFactory.decodeByteArray(data, 0, data.size, bounds)
+                if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+                wPt = bounds.outWidth * 72f / 96f
+                hPt = bounds.outHeight * 72f / 96f
             }
             val scale = min(1f, maxWidth / wPt)
             val targetW = wPt * scale
             val targetH = hPt * scale
-            // Decode at a bounded size so a huge photo cannot OOM the app.
-            val sample = max(1, min(rawW / max(1, targetW.toInt()), rawH / max(1, targetH.toInt())))
-            val options = BitmapFactory.Options().apply { inSampleSize = sample }
-            val bitmap = BitmapFactory.decodeByteArray(data, 0, data.size, options) ?: return null
+            val bitmap = decodeBitmap(data, targetW, targetH) ?: return null
             PictureBlock(bitmap, targetW, targetH)
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    /** One wp:anchor's geometry, parsed from its XML (raw-XML parsing
+     *  keeps this independent of XmlBeans accessor names). */
+    private class AnchorGeom(
+        val widthPt: Float,
+        val heightPt: Float,
+        val behindDoc: Boolean,
+        val posHFrom: String,
+        val posHOffsetPt: Float?,
+        val posHAlign: String?,
+        val posVFrom: String,
+        val posVOffsetPt: Float?
+    )
+
+    private fun parseAnchor(xml: String): AnchorGeom? {
+        fun attrValue(tagStart: String, attr: String): String? {
+            val i = xml.indexOf(tagStart)
+            if (i < 0) return null
+            val tagEnd = xml.indexOf('>', i)
+            if (tagEnd < 0) return null
+            val j = xml.indexOf("$attr=\"", i)
+            if (j < 0 || j > tagEnd) return null
+            val s = j + attr.length + 2
+            val e = xml.indexOf('"', s)
+            return if (e > s) xml.substring(s, e) else null
+        }
+        fun posSpec(tag: String, defaultFrom: String): Triple<String, Float?, String?> {
+            val open = xml.indexOf("<wp:$tag")
+            if (open < 0) return Triple(defaultFrom, null, "center")
+            val from = attrValue("<wp:$tag", "relativeFrom") ?: defaultFrom
+            val close = xml.indexOf("</wp:$tag>", open)
+            val body = if (close > open) xml.substring(open, close) else ""
+            val off = Regex("<wp:posOffset>(-?\\d+)</wp:posOffset>").find(body)?.groupValues?.get(1)?.toLongOrNull()
+            if (off != null) return Triple(from, off / 12700f, null)
+            val align = Regex("<wp:align>(\\w+)</wp:align>").find(body)?.groupValues?.get(1)
+            return Triple(from, null, align)
+        }
+        val extCx = attrValue("<wp:extent", "cx")?.toLongOrNull() ?: return null
+        val extCy = attrValue("<wp:extent", "cy")?.toLongOrNull() ?: return null
+        if (extCx <= 0 || extCy <= 0) return null
+        val behind = xml.indexOf("behindDoc=\"1\"") >= 0 ||
+            xml.indexOf("behindDoc=\"true\"") >= 0 ||
+            xml.indexOf("behindDoc=\"on\"") >= 0
+        val (hFrom, hOff, hAlign) = posSpec("positionH", "column")
+        val (vFrom, vOff, _) = posSpec("positionV", "paragraph")
+        return AnchorGeom(
+            extCx / 12700f, extCy / 12700f, behind,
+            hFrom, hOff, hAlign, vFrom, vOff ?: 0f
+        )
+    }
+
+    /** Splits one run's pictures into inline flow blocks and floating
+     *  overlays. A drawing is floating when its picture's blip id appears
+     *  inside a wp:anchor element of the run; anything else (including any
+     *  picture whose kind cannot be determined) stays inline, i.e. the
+     *  previous behaviour. */
+    private fun extractRunPictures(run: XWPFRun, maxWidth: Float): Pair<List<PictureBlock>, List<FloatingPicture>>? {
+        val inline = mutableListOf<PictureBlock>()
+        val floating = mutableListOf<FloatingPicture>()
+        // Map blip embed id -> anchor geometry for this run.
+        val anchors = mutableMapOf<String, AnchorGeom>()
+        try {
+            for (drawing in run.ctr.drawingList) {
+                for (anchor in drawing.anchorList) {
+                    val xml = try {
+                        anchor.xmlText()
+                    } catch (_: Exception) {
+                        continue
+                    }
+                    val geom = try {
+                        parseAnchor(xml)
+                    } catch (_: Exception) {
+                        null
+                    } ?: continue
+                    // The blip id lives in the anchor's own XML
+                    // (<a:blip r:embed="rId7" .../>); CTGraphicalObjectData
+                    // has no typed pic accessor, so read it from the text.
+                    val rid = Regex("""r:embed="([^"]+)"""").find(xml)?.groupValues?.getOrNull(1) ?: continue
+                    anchors[rid] = geom
+                }
+            }
+        } catch (_: Exception) {
+        }
+        for (pic in run.embeddedPictures) {
+            val rid = try {
+                pic.ctPicture?.blipFill?.blip?.embed
+            } catch (_: Exception) {
+                null
+            }
+            val geom = if (rid != null) anchors[rid] else null
+            if (geom != null) {
+                floatingPicture(pic, geom)?.let { floating.add(it) }
+            } else {
+                pictureBlock(pic, maxWidth)?.let { inline.add(it) }
+            }
+        }
+        return inline to floating
+    }
+
+    /** A floating picture at its anchor's own extent (Word never scales a
+     *  floating picture to its column), decoded at print resolution. */
+    private fun floatingPicture(pic: XWPFPicture, geom: AnchorGeom): FloatingPicture? {
+        return try {
+            val data = pic.pictureData?.data ?: return null
+            val bitmap = decodeBitmap(data, geom.widthPt, geom.heightPt) ?: return null
+            FloatingPicture(
+                bitmap, geom.widthPt, geom.heightPt,
+                geom.posHFrom, geom.posHOffsetPt, geom.posHAlign,
+                geom.posVFrom, geom.posVOffsetPt ?: 0f, geom.behindDoc
+            )
         } catch (_: Throwable) {
             null
         }
@@ -475,14 +651,100 @@ private class DocxPdfRenderer(
     private fun drawFlow(content: ParaContent) {
         val totalH = content.height
         var consumed = 0f
+        var firstSlice = true
         while (consumed < totalH - 0.01f) {
             if (contentBottom - y <= 1f) newPage()
             val avail = contentBottom - y
             val slice = min(avail, totalH - consumed)
+            if (firstSlice) {
+                // Floating pictures anchored to this paragraph: behind-text
+                // ones are painted now, before the paragraph (and anything
+                // after it), so they sit behind the text; front ones wait
+                // until the page is finished.
+                drawFloating(content, y)
+                firstSlice = false
+            }
             drawBlocks(content.blocks, content.x, content.width, y - consumed, y, y + slice)
             y += slice
             consumed += slice
         }
+    }
+
+    /** A front (not behindDoc) floating picture waiting for its page to
+     *  finish, so it is painted over the text. */
+    private class PendingOverlay(
+        val page: Int,
+        val bitmap: Bitmap,
+        val left: Float,
+        val top: Float,
+        val width: Float,
+        val height: Float
+    )
+
+    private val pendingFront = mutableListOf<PendingOverlay>()
+
+    /** Paints [para]'s floating pictures. [boxTop] is the paragraph's box
+     *  top on the current page. The anchor's vertical reference is the
+     *  first line's top (box top + spacingBefore); the horizontal reference
+     *  is the anchor column's left edge — the paragraph's x for a cell or
+     *  body paragraph (relativeFrom=column), the page's content left for
+     *  relativeFrom=margin, the page edge for relativeFrom=page. Word
+     *  ignores a cell's vertical alignment for floating pictures, so
+     *  callers pass the top-aligned box top (no vOff). Overlays are clipped
+     *  to the page's content area, never to the paragraph's band — they may
+     *  overlap following content, which then paints over behindDoc ones. */
+    private fun drawFloating(para: ParaContent, boxTop: Float) {
+        if (para.floating.isEmpty()) return
+        val c = canvas ?: return
+        val lineTop = boxTop + para.spacingBeforePt
+        for (f in para.floating) {
+            val colLeft = when (f.posHFrom) {
+                "margin" -> contentLeft
+                "page" -> 0f
+                else -> para.x
+            }
+            val colWidth = when (f.posHFrom) {
+                "margin" -> contentWidth
+                "page" -> pageWidth
+                else -> para.width
+            }
+            val left = if (f.offsetH != null) {
+                colLeft + f.offsetH
+            } else {
+                when (f.alignH) {
+                    "center" -> colLeft + (colWidth - f.widthPt) / 2f
+                    "right" -> colLeft + colWidth - f.widthPt
+                    else -> colLeft
+                }
+            }
+            val top = when (f.posVFrom) {
+                "margin" -> contentTop + f.offsetV
+                "page" -> f.offsetV
+                else -> lineTop + f.offsetV
+            }
+            if (f.behindDoc) {
+                c.save()
+                c.clipRect(contentLeft, contentTop, contentRight, contentBottom)
+                c.drawBitmap(f.bitmap, null, RectF(left, top, left + f.widthPt, top + f.heightPt), null)
+                c.restore()
+            } else {
+                pendingFront.add(PendingOverlay(pageNumber, f.bitmap, left, top, f.widthPt, f.heightPt))
+            }
+        }
+    }
+
+    /** Paints the front floating pictures of the page being finished. */
+    private fun drawPendingFront() {
+        val c = canvas ?: return
+        val done = pendingFront.filter { it.page == pageNumber }
+        if (done.isEmpty()) return
+        pendingFront.removeAll(done)
+        c.save()
+        c.clipRect(contentLeft, contentTop, contentRight, contentBottom)
+        for (o in done) {
+            c.drawBitmap(o.bitmap, null, RectF(o.left, o.top, o.left + o.width, o.top + o.height), null)
+        }
+        c.restore()
     }
 
     /** Draws a list of blocks whose virtual column starts at [columnTop]
@@ -682,7 +944,10 @@ private class DocxPdfRenderer(
             null
         }
         // Cell margins from tblCellMar (Word's defaults: left/right 108 dxa,
-        // top/bottom 0); a minimum 2pt pad keeps text off the ruling.
+        // top/bottom 0). The vertical margins are used as-is: Word puts no
+        // extra padding above/below cell text, so a 2pt minimum here would
+        // add 4pt to every row the template leaves at 0. The horizontal
+        // 2pt minimum stays (text must not touch the ruling).
         val cellMar = try {
             tblPr?.tblCellMar
         } catch (_: Exception) {
@@ -722,8 +987,8 @@ private class DocxPdfRenderer(
         }
         val measured = mutableListOf<MeasuredCell>()
         var startCol = 0
-        var vPadTop = max(2f, marT)
-        var vPadBottom = max(2f, marB)
+        var vPadTop = marT
+        var vPadBottom = marB
         for (cell in cells) {
             val tcPr = try {
                 cell.ctTc?.tcPr
@@ -755,8 +1020,8 @@ private class DocxPdfRenderer(
             val cMarB = if (tcMar?.bottom != null) numberValue(tcMar.bottom.w) / 20f else marB
             val hPadL = max(2f, cMarL)
             val hPadR = max(2f, cMarR)
-            vPadTop = max(vPadTop, max(2f, cMarT))
-            vPadBottom = max(vPadBottom, max(2f, cMarB))
+            vPadTop = max(vPadTop, cMarT)
+            vPadBottom = max(vPadBottom, cMarB)
             val contentX = cellLeft + hPadL
             val contentW = max(1f, cellW - hPadL - hPadR)
             val paras = mutableListOf<ParaContent>()
@@ -850,6 +1115,13 @@ private class DocxPdfRenderer(
                 val columnTop = bandTop - consumed + row.vPadTop + vOff
                 var paraOffset = 0f
                 for (para in cell.paras) {
+                    if (firstSlice) {
+                        // Floating pictures anchored to this paragraph: the
+                        // anchor's vertical reference ignores the cell's
+                        // vertical alignment (Word does the same), so the
+                        // box top is computed without vOff.
+                        drawFloating(para, bandTop - consumed + row.vPadTop + paraOffset)
+                    }
                     drawBlocks(para.blocks, para.x, para.width, columnTop + paraOffset, bandTop, bandBottom)
                     paraOffset += para.height
                 }

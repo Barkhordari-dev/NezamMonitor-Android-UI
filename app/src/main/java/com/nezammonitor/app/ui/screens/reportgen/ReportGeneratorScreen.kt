@@ -623,7 +623,7 @@ private fun generateReports(context: Context, cases: List<CaseEntity>, allCases:
 
     outputsDir.mkdirs()
     val now = Date()
-    val persianDate = toPersianDate(now).replace("/", "-") // Fix: replace / with -
+    val persianDate = toPersianDate(now)
     val timeNow = SimpleDateFormat("HH:mm", Locale.US).format(now)
     val englishDate = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(now)
     var count = 0
@@ -781,7 +781,7 @@ private fun buildReportPdfSections(
             val (localRec, serverRep) = historyByStage[entry.stage] ?: (null to null)
             val status = generationHistoryText(localRec, serverRep)
                 .ifBlank { remainingText(entry.dueDate, today) }
-            "مرحله ${stageNameForNumber(entry.stage)}: سررسید ${entry.dueDate} — $status"
+            "مرحله ${stageNameForNumber(entry.stage)}: سررسید ${entry.dueDate.toPersianDigits()} — $status"
         }))
     }
     return sections
@@ -829,7 +829,7 @@ private fun generateReportPdfs(
         ?: return GenerateResult(emptyList(), "❌ فایل تمپلیت مرحله $stageName یافت نشد\nفایل‌ها را در ${templatesDir.absolutePath} قرار دهید")
     outputsDir.mkdirs()
     val now = Date()
-    val persianDate = toPersianDate(now).replace("/", "-")
+    val persianDate = toPersianDate(now)
     val timeNow = SimpleDateFormat("HH:mm", Locale.US).format(now)
     val englishDate = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(now)
     var count = 0
@@ -1335,7 +1335,7 @@ private fun HistoryTab(
                 ?: return null
             val dir = File(context.cacheDir, "print").apply { mkdirs() }
             val out = File(dir, "print-${record.caseNumber}.docx")
-            val persianDate = toPersianDate(Date()).replace("/", "-")
+            val persianDate = toPersianDate(Date())
             if (buildWordReportToFile(template, case, spec, caseEngineers, persianDate, false, userName, out)) out else null
         } catch (_: Exception) {
             null
