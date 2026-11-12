@@ -1,10 +1,24 @@
 import java.io.File
 import java.util.Base64
+import java.util.Properties
 
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("com.google.devtools.ksp")
+}
+
+// Hidden-menu password folder: the Drive folder id lives ONLY in the
+// developer's local.properties (gitignored, never pushed) — it must never
+// appear in the repo, or anyone could find the password location. A build
+// without local.properties (e.g. CI) gets an empty id, so the hidden menu
+// simply cannot fetch a password there (cached name / NO_NETWORK fallback);
+// the local build gets the real id.
+val hiddenMenuFolderId: String = run {
+    val props = Properties()
+    val f = rootProject.file("local.properties")
+    if (f.exists()) f.inputStream().use { props.load(it) }
+    props.getProperty("hiddenMenuFolderId", "")
 }
 
 android {
@@ -15,8 +29,9 @@ android {
         applicationId = "com.nezammonitor.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 68
-        versionName = "3.8.3"
+        versionCode = 69
+        versionName = "3.8.4"
+        buildConfigField("String", "HIDDEN_MENU_FOLDER_ID", "\"$hiddenMenuFolderId\"")
     }
 
     buildToolsVersion = "34.0.0"

@@ -8,8 +8,8 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [CaseEntity::class, SpecificationEntity::class, EngineerEntity::class, FeeEntity::class, ReportEntity::class, FollowUpEditEntity::class, FeeReceiptEntity::class, SnapshotEntity::class],
-    version = 7,
+    entities = [CaseEntity::class, SpecificationEntity::class, EngineerEntity::class, FeeEntity::class, ReportEntity::class, FollowUpEditEntity::class, FeeReceiptEntity::class, SnapshotEntity::class, HiddenOverrideEntity::class],
+    version = 8,
     exportSchema = false
 )
 abstract class NezamDatabase : RoomDatabase() {
@@ -188,6 +188,21 @@ abstract class NezamDatabase : RoomDatabase() {
             }
         }
 
+        // v8 adds the `hidden_overrides` table (hidden settings menu). A plain
+        // CREATE TABLE + CREATE UNIQUE INDEX: it is a new table, so no data
+        // to migrate and no validation risk — but the statements must match
+        // exactly what Room generates for a fresh install (no DEFAULTs on any
+        // column; the unique index as a separate CREATE UNIQUE INDEX with
+        // Room's index_hidden_overrides_tableName_recordKey_fieldName name),
+        // or migration validation fails and fallbackToDestructiveMigration
+        // would wipe the database.
+        private val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS `hidden_overrides` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `tableName` TEXT NOT NULL, `recordKey` TEXT NOT NULL, `fieldName` TEXT NOT NULL, `value` TEXT NOT NULL, `updatedAt` TEXT NOT NULL)")
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_hidden_overrides_tableName_recordKey_fieldName` ON `hidden_overrides` (`tableName`, `recordKey`, `fieldName`)")
+            }
+        }
+
         fun getDatabase(context: Context): NezamDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -195,7 +210,7 @@ abstract class NezamDatabase : RoomDatabase() {
                     NezamDatabase::class.java,
                     "nezam_monitor.db"
                 )
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
                 .fallbackToDestructiveMigration()
                 .build()
                 INSTANCE = instance

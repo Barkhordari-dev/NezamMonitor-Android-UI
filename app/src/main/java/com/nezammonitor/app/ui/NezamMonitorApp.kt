@@ -40,6 +40,7 @@ import com.nezammonitor.app.ui.screens.followup.FollowUpScreen
 import com.nezammonitor.app.ui.screens.home.HomeScreen
 import com.nezammonitor.app.ui.screens.reports.ReportsScreen
 import com.nezammonitor.app.ui.screens.settings.SettingsScreen
+import com.nezammonitor.app.ui.screens.settings.HiddenSettingsScreen
 import com.nezammonitor.app.ui.screens.export.ExportScreen
 import com.nezammonitor.app.ui.screens.update.UpdateScreen
 import com.nezammonitor.app.ui.screens.archive.ArchiveScreen
@@ -414,7 +415,16 @@ fun NezamMonitorApp(viewModel: MainViewModel) {
                         CaseDetailScreen(viewModel = viewModel, onBack = { navController.popBackStack() })
                     }
                     composable(Screen.Settings.route) {
-                        SettingsScreen(viewModel = viewModel)
+                        SettingsScreen(
+                            viewModel = viewModel,
+                            onNavigateToHiddenSettings = { navController.navigate(Screen.HiddenSettings.route) }
+                        )
+                    }
+                    composable(Screen.HiddenSettings.route) {
+                        HiddenSettingsScreen(
+                            viewModel = viewModel,
+                            onBack = { navController.popBackStack() }
+                        )
                     }
                     composable(Screen.Import.route) {
                         HomeScreen(viewModel = viewModel)

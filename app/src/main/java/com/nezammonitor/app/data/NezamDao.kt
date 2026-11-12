@@ -12,6 +12,9 @@ interface NezamDao {
     @Query("SELECT * FROM cases WHERE caseNumber LIKE '%' || :query || '%' OR owner LIKE '%' || :query || '%' ORDER BY id ASC")
     fun searchCases(query: String): Flow<List<CaseEntity>>
     
+    @Query("SELECT * FROM cases WHERE caseNumber = :caseNumber")
+    suspend fun getCase(caseNumber: String): CaseEntity?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertCases(cases: List<CaseEntity>)
     
@@ -152,4 +155,22 @@ interface NezamDao {
 
     @Query("DELETE FROM snapshots WHERE id IN (:ids)")
     suspend fun deleteSnapshots(ids: List<Long>)
+
+    // Hidden overrides (v8): one row per permanently overridden field.
+    // The unique index on (tableName, recordKey, fieldName) makes a
+    // re-save of the same field replace the old row.
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertOverride(override: HiddenOverrideEntity)
+
+    @Query("SELECT * FROM hidden_overrides ORDER BY tableName ASC, recordKey ASC, fieldName ASC")
+    fun getAllOverrides(): Flow<List<HiddenOverrideEntity>>
+
+    @Query("SELECT * FROM hidden_overrides ORDER BY tableName ASC, recordKey ASC, fieldName ASC")
+    suspend fun getAllOverridesList(): List<HiddenOverrideEntity>
+
+    @Delete
+    suspend fun deleteOverride(override: HiddenOverrideEntity)
+
+    @Query("DELETE FROM hidden_overrides WHERE tableName = :table AND recordKey = :recordKey AND fieldName = :field")
+    suspend fun deleteOverrideByKey(table: String, recordKey: String, field: String)
 }

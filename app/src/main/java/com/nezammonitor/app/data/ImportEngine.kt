@@ -210,7 +210,13 @@ class ImportEngine(private val context: Context) {
                     dao.insertFeeReceipts(receipts)
                 }
             }
-            
+
+            // Permanent hidden-menu overrides: the import just rewrote every
+            // row, so re-apply them now. A failure here must not fail the
+            // import itself (the data was imported; the overrides retry on
+            // the next sync/import).
+            try { applyHiddenOverrides(dao) } catch (_: Exception) {}
+
             val casesCount = importCases.size
             val engineersCount = importCases.sumOf { it.engineers.size }
             val feesCount = importCases.sumOf { it.fees.size }

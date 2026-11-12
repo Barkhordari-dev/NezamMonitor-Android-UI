@@ -520,6 +520,10 @@ fun UpdateScreen(
                             lastUpdate = now
                             // Snapshot the synced dataset for the Changes menu.
                             com.nezammonitor.app.data.SnapshotStore.saveSnapshot(dao, "بروزرسانی از سامانه", now)
+                            // Permanent hidden-menu overrides: the sync just
+                            // rewrote every row, so re-apply them now. The
+                            // snapshot above keeps the pure server data.
+                            try { applyHiddenOverrides(dao) } catch (_: Exception) {}
                             statusText = "✅ بروزرسانی کامل شد!\n${cases.size} پرونده | ${allEngineers.size} مهندس | ${allFees.size} حق‌الزحمه | ${allReports.size} گزارش | $downloadedFiles فایل"
                             progress = 1f
                         } catch (e: Exception) {

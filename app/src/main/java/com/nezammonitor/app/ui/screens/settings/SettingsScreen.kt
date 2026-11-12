@@ -7,6 +7,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -14,6 +15,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -28,6 +31,7 @@ import com.nezammonitor.app.ui.theme.CardStyle
 import com.nezammonitor.app.ui.theme.CornerStyle
 import com.nezammonitor.app.ui.theme.VisualEffects
 import com.nezammonitor.app.viewmodel.MainViewModel
+import kotlinx.coroutines.launch
 
 data class AppPreferences(
     val themeMode: Int = 0, // 0=Light, 1=Dark, 2=System
@@ -67,14 +71,24 @@ data class AppPreferences(
 }
 
 @Composable
-fun SettingsScreen(viewModel: MainViewModel) {
+fun SettingsScreen(viewModel: MainViewModel, onNavigateToHiddenSettings: () -> Unit = {}) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var prefs by remember { mutableStateOf(AppPreferences.load(context)) }
 
     val cases by viewModel.cases.collectAsState()
     val engineers by viewModel.engineers.collectAsState()
     val fees by viewModel.fees.collectAsState()
     val reports by viewModel.reports.collectAsState()
+
+    // Hidden menu unlock: 10 taps in a row on the About card (no visible
+    // hint anywhere). The counter resets if more than 3s pass between taps.
+    var aboutTapCount by remember { mutableStateOf(0) }
+    var lastAboutTapAt by remember { mutableStateOf(0L) }
+    var showHiddenPasswordDialog by remember { mutableStateOf(false) }
+    var hiddenPassword by remember { mutableStateOf("") }
+    var hiddenPasswordError by remember { mutableStateOf("") }
+    var hiddenPasswordChecking by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -322,8 +336,20 @@ fun SettingsScreen(viewModel: MainViewModel) {
 
         Spacer(modifier = Modifier.height(14.dp))
 
-        // 6. App Info
-        NezamCard(modifier = Modifier.fillMaxWidth()) {
+        // 6. App Info — 10 taps in a row here open the hidden menu's
+        // password dialog (no visible hint that it exists).
+        NezamCard(
+            modifier = Modifier.fillMaxWidth(),
+            onClick = {
+                val now = System.currentTimeMillis()
+                aboutTapCount = if (now - lastAboutTapAt > 3000L) 1 else aboutTapCount + 1
+                lastAboutTapAt = now
+                if (aboutTapCount >= 10) {
+                    aboutTapCount = 0
+                    showHiddenPasswordDialog = true
+                }
+            }
+        ) {
             Column(modifier = Modifier.padding(16.dp)) {
                 SectionTitle("درباره برنامه")
                 Spacer(modifier = Modifier.height(8.dp))
@@ -360,6 +386,89 @@ fun SettingsScreen(viewModel: MainViewModel) {
             }
         }
     }
+
+    // Hidden menu password dialog (opened by 10 taps on the About card).
+    if (showHiddenPasswordDialog) {
+        HiddenPasswordDialog(
+            password = hiddenPassword,
+            onPasswordChange = { hiddenPassword = it },
+            error = hiddenPasswordError,
+            checking = hiddenPasswordChecking,
+            onConfirm = {
+                hiddenPasswordChecking = true
+                hiddenPasswordError = ""
+                scope.launch {
+                    val result = checkHiddenMenuPassword(context, hiddenPassword)
+                    hiddenPasswordChecking = false
+                    when (result) {
+                        HiddenPasswordResult.OK -> {
+                            HiddenMenuSession.unlocked = true
+                            showHiddenPasswordDialog = false
+                            hiddenPassword = ""
+                            onNavigateToHiddenSettings()
+                        }
+                        HiddenPasswordResult.WRONG -> hiddenPasswordError = "رمز اشتباه است"
+                        HiddenPasswordResult.NO_NETWORK -> hiddenPasswordError = "دسترسی به اینترنت نیست"
+                    }
+                }
+            },
+            onDismiss = {
+                if (!hiddenPasswordChecking) {
+                    showHiddenPasswordDialog = false
+                    hiddenPassword = ""
+                    hiddenPasswordError = ""
+                }
+            }
+        )
+    }
+}
+
+/** Password dialog for the hidden menu: the password is the name of the
+ *  user's Google Drive folder, checked live (or against the last cached
+ *  name when offline). */
+@Composable
+private fun HiddenPasswordDialog(
+    password: String,
+    onPasswordChange: (String) -> Unit,
+    error: String,
+    checking: Boolean,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("منوی مخفی", fontSize = 16.sp, fontWeight = FontWeight.Bold) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = password,
+                    onValueChange = onPasswordChange,
+                    label = { Text("رمز عبور") },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !checking
+                )
+                if (error.isNotBlank()) {
+                    Text(error, fontSize = 12.sp, color = MaterialTheme.colorScheme.error)
+                }
+                if (checking) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("در حال بررسی...", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm, enabled = !checking) { Text("تأیید") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, enabled = !checking) { Text("انصراف") }
+        }
+    )
 }
 
 @Composable

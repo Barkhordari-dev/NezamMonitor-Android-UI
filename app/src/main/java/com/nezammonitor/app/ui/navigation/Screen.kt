@@ -34,6 +34,9 @@ sealed class Screen(val route: String, val title: String, val icon: String) {
     }
     object Changes : Screen("changes", "تغییرات", "📸")
     object Settings : Screen("settings", "تنظیمات", "⚙️")
+    // Hidden settings (v3.8.4): NOT in drawerItems — reachable only by
+    // tapping the About card in Settings 10 times and entering the password.
+    object HiddenSettings : Screen("hidden_settings", "تنظیمات مخفی", "🔒")
     object Import : Screen("import", "ورود اطلاعات", "📥")
     object Export : Screen("export", "خروجی اکسل", "📤")
 }
