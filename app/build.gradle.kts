@@ -1,3 +1,6 @@
+import java.io.File
+import java.util.Base64
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -12,8 +15,8 @@ android {
         applicationId = "com.nezammonitor.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 65
-        versionName = "3.8.0"
+        versionCode = 66
+        versionName = "3.8.1"
     }
 
     buildToolsVersion = "34.0.0"
@@ -103,3 +106,24 @@ dependencies {
     androidTestImplementation(platform("androidx.compose:compose-bom:2023.10.01"))
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
 }
+
+// B Nazanin fonts: the TTFs are binary, and the repo's push channel only
+// carries text, so the fonts live in the repo as base64 (fonts-src/*.b64)
+// and this task decodes them into src/main/assets/fonts/ before the build.
+// The decoded *.ttf files are gitignored and never committed.
+val decodeFonts by tasks.registering {
+    val srcDir = layout.projectDirectory.dir("fonts-src")
+    val outDir = layout.projectDirectory.dir("src/main/assets/fonts")
+    inputs.dir(srcDir)
+    outputs.dir(outDir)
+    doLast {
+        outDir.asFile.mkdirs()
+        srcDir.asFile.listFiles { f -> f.name.endsWith(".b64") }.orEmpty().forEach { b64 ->
+            val out = File(outDir.asFile, b64.name.removeSuffix(".b64"))
+            if (!out.exists() || out.lastModified() < b64.lastModified()) {
+                out.writeBytes(Base64.getMimeDecoder().decode(b64.readText()))
+            }
+        }
+    }
+}
+tasks.named("preBuild").configure { dependsOn(decodeFonts) }

@@ -1,5 +1,6 @@
 package com.nezammonitor.app.ui.screens.reportgen
 
+import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
@@ -17,6 +18,7 @@ import android.text.TextDirectionHeuristics
 import android.text.TextPaint
 import android.text.style.AbsoluteSizeSpan
 import android.text.style.ForegroundColorSpan
+import android.text.style.MetricAffectingSpan
 import android.text.style.StyleSpan
 import android.text.style.UnderlineSpan
 import org.apache.poi.xwpf.usermodel.BodyElementType
@@ -65,18 +67,23 @@ import kotlin.math.roundToInt
  * two background logos are NOT in POI's embedded-pictures list, so they
  * are skipped; inline pictures are drawn scaled to fit.
  *
+ * Text is drawn with the bundled B Nazanin (assets/fonts/) — the
+ * template's own font, so the PDF text looks like the Word file; bold
+ * runs use the real B Nazanin Bold file, not synthesized bold.
+ *
  * [fontScale] (0.5–1.0) scales run font sizes — the size-limit loop uses
  * it to shrink a PDF that is over the chosen maximum. Returns false on
  * any failure and never throws.
  */
-fun convertDocxToPdf(docxFile: File, pdfFile: File, fontScale: Float = 1f): Boolean {
+fun convertDocxToPdf(context: Context, docxFile: File, pdfFile: File, fontScale: Float = 1f): Boolean {
     if (!docxFile.exists()) return false
     return try {
         FileInputStream(docxFile).use { input ->
             XWPFDocument(input).use { xdoc ->
                 val pdf = PdfDocument()
                 try {
-                    DocxPdfRenderer(pdf, fontScale.coerceIn(0.5f, 1f)).render(xdoc)
+                    val (regular, bold) = BNazaninFonts.load(context)
+                    DocxPdfRenderer(pdf, fontScale.coerceIn(0.5f, 1f), regular, bold).render(xdoc)
                     pdfFile.parentFile?.mkdirs()
                     FileOutputStream(pdfFile).use { pdf.writeTo(it) }
                     true
@@ -96,7 +103,42 @@ fun convertDocxToPdf(docxFile: File, pdfFile: File, fontScale: Float = 1f): Bool
 
 private const val DEFAULT_SIZE_PT = 11f
 
-private class DocxPdfRenderer(private val pdf: PdfDocument, private val fontScale: Float) {
+/** The bundled B Nazanin fonts (assets/fonts/): the template's own font,
+ *  so the PDF text looks like the Word file. Loaded once and cached;
+ *  any failure falls back to the system font (regular) / synthesized
+ *  bold (bold). The load runs on the caller's thread — callers invoke
+ *  convertDocxToPdf from Dispatchers.IO. */
+private object BNazaninFonts {
+    @Volatile private var regular: Typeface? = null
+    @Volatile private var bold: Typeface? = null
+    @Volatile private var loaded = false
+
+    @Synchronized
+    fun load(context: Context): Pair<Typeface, Typeface?> {
+        if (!loaded) {
+            val assets = context.applicationContext.assets
+            regular = try { Typeface.createFromAsset(assets, "fonts/BNazanin.ttf") } catch (_: Exception) { null }
+            bold = try { Typeface.createFromAsset(assets, "fonts/BNazaninBd.ttf") } catch (_: Exception) { null }
+            loaded = true
+        }
+        return (regular ?: Typeface.DEFAULT) to bold
+    }
+}
+
+/** A span that switches the paint to a specific Typeface (here the real
+ *  B Nazanin Bold file) instead of StyleSpan(BOLD), which would only
+ *  synthesize bold on top of the regular font. */
+private class TypefaceSwitchSpan(private val typeface: Typeface) : MetricAffectingSpan() {
+    override fun updateMeasureState(textPaint: TextPaint) { textPaint.typeface = typeface }
+    override fun updateDrawState(textPaint: TextPaint) { textPaint.typeface = typeface }
+}
+
+private class DocxPdfRenderer(
+    private val pdf: PdfDocument,
+    private val fontScale: Float,
+    private val regularTypeface: Typeface,
+    private val boldTypeface: Typeface?
+) {
 
     // Page geometry in points (1 pt = 1/72 inch). Defaults are A4 with
     // Word's 1-inch margins; the document's sectPr overrides them.
@@ -264,7 +306,12 @@ private class DocxPdfRenderer(private val pdf: PdfDocument, private val fontScal
                 } catch (_: Exception) {
                     false
                 }
-                if (bold) sb.setSpan(StyleSpan(Typeface.BOLD), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                if (bold) {
+                    // Real B Nazanin Bold when the file loaded; otherwise
+                    // synthesized bold on the regular font.
+                    if (boldTypeface != null) sb.setSpan(TypefaceSwitchSpan(boldTypeface), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    else sb.setSpan(StyleSpan(Typeface.BOLD), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                }
                 if (italic) sb.setSpan(StyleSpan(Typeface.ITALIC), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                 sb.setSpan(
                     AbsoluteSizeSpan((sizePt * fontScale).roundToInt(), false),
@@ -305,7 +352,7 @@ private class DocxPdfRenderer(private val pdf: PdfDocument, private val fontScal
         val adjWidth = max(1f, width - indLeft - indRight)
         val (lineMult, lineExtra) = lineSpacing(para)
         val paint = TextPaint().apply {
-            typeface = Typeface.DEFAULT
+            typeface = regularTypeface
             textSize = maxSize * fontScale
         }
         val builder = StaticLayout.Builder.obtain(sb, 0, sb.length, paint, adjWidth.toInt())

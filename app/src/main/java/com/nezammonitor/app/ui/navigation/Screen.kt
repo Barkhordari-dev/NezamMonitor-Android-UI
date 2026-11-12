@@ -27,6 +27,7 @@ sealed class Screen(val route: String, val title: String, val icon: String) {
     object ReportHistory : Screen("report_history", "سابقه گزارش\u200Cها", "📦")
     object ScheduleSettings : Screen("schedule_settings", "تغییر زمان\u200Cبندی", "⏱️")
     object ReportHelp : Screen("report_help", "راهنمای تولید گزارش", "❓")
+    object ReportPaths : Screen("report_paths", "مسیرها", "📂")
     object Archive : Screen("archive", "بایگانی", "🗄️")
     object ArchiveDetail : Screen("archive_detail/{caseNumber}", "جزئیات پرونده بایگانی\u200Cشده", "🗄️") {
         fun createRoute(caseNumber: String) = "archive_detail/${URLEncoder.encode(caseNumber, "UTF-8")}"

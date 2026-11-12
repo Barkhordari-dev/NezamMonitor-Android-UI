@@ -47,6 +47,7 @@ import com.nezammonitor.app.ui.screens.changes.ChangesScreen
 import com.nezammonitor.app.ui.screens.reportgen.ReportGeneratorScreen
 import com.nezammonitor.app.ui.screens.reportgen.ScheduleSettingsScreen
 import com.nezammonitor.app.ui.screens.reportgen.ReportHelpScreen
+import com.nezammonitor.app.ui.screens.reportgen.ReportPathsScreen
 import com.nezammonitor.app.viewmodel.MainViewModel
 import kotlinx.coroutines.launch
 import java.net.URLDecoder
@@ -362,7 +363,8 @@ fun NezamMonitorApp(viewModel: MainViewModel) {
                             onBack = { navController.popBackStack() },
                             onNavigateToUpdate = { navController.navigate(Screen.Update.route) },
                             onNavigateToSchedule = { navController.navigate(Screen.ScheduleSettings.route) },
-                            onNavigateToHelp = { navController.navigate(Screen.ReportHelp.route) }
+                            onNavigateToHelp = { navController.navigate(Screen.ReportHelp.route) },
+                            onNavigateToPaths = { navController.navigate(Screen.ReportPaths.route) }
                         )
                     }
                     composable(Screen.ReportHistory.route) {
@@ -374,7 +376,8 @@ fun NezamMonitorApp(viewModel: MainViewModel) {
                             onBack = { navController.popBackStack() },
                             onNavigateToUpdate = { navController.navigate(Screen.Update.route) },
                             onNavigateToSchedule = { navController.navigate(Screen.ScheduleSettings.route) },
-                            onNavigateToHelp = { navController.navigate(Screen.ReportHelp.route) }
+                            onNavigateToHelp = { navController.navigate(Screen.ReportHelp.route) },
+                            onNavigateToPaths = { navController.navigate(Screen.ReportPaths.route) }
                         )
                     }
                     composable(Screen.ScheduleSettings.route) {
@@ -382,6 +385,9 @@ fun NezamMonitorApp(viewModel: MainViewModel) {
                     }
                     composable(Screen.ReportHelp.route) {
                         ReportHelpScreen(onBack = { navController.popBackStack() })
+                    }
+                    composable(Screen.ReportPaths.route) {
+                        ReportPathsScreen(onBack = { navController.popBackStack() })
                     }
                     composable(Screen.Archive.route) {
                         ArchiveScreen(

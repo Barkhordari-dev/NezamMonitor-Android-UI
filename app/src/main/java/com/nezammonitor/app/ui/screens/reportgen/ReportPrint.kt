@@ -90,7 +90,7 @@ fun printDocxFile(context: Context, docxFile: File, jobName: String): Boolean {
         if (!docxFile.exists()) return false
         val dir = File(context.cacheDir, "print").apply { mkdirs() }
         val out = File(dir, docxFile.nameWithoutExtension + ".pdf")
-        if (!convertDocxToPdf(docxFile, out)) return false
+        if (!convertDocxToPdf(context, docxFile, out)) return false
         if (!out.exists()) return false
         printPdfFile(context, out, jobName)
         true

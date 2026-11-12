@@ -48,3 +48,7 @@ browser_data/
 *.tmp
 *.bak
 *.swp
+
+# B Nazanin fonts: decoded at build time from fonts-src/*.b64 (see the
+# decodeFonts task in app/build.gradle.kts) — never commit the binaries.
+app/src/main/assets/fonts/*.ttf

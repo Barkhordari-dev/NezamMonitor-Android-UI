@@ -45,7 +45,7 @@ import java.util.*
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class, ExperimentalLayoutApi::class)
 @Composable
-fun ReportGeneratorScreen(viewModel: MainViewModel, initialTab: Int = 0, onBack: () -> Unit, onNavigateToUpdate: () -> Unit = {}, onNavigateToSchedule: () -> Unit = {}, onNavigateToHelp: () -> Unit = {}) {
+fun ReportGeneratorScreen(viewModel: MainViewModel, initialTab: Int = 0, onBack: () -> Unit, onNavigateToUpdate: () -> Unit = {}, onNavigateToSchedule: () -> Unit = {}, onNavigateToHelp: () -> Unit = {}, onNavigateToPaths: () -> Unit = {}) {
     val context = LocalContext.current
     val scheduleConfig = remember { ScheduleConfig(context) }
     val cases by viewModel.cases.collectAsState()
@@ -109,6 +109,8 @@ fun ReportGeneratorScreen(viewModel: MainViewModel, initialTab: Int = 0, onBack:
     var localHistory by remember { mutableStateOf(loadReportHistory(context)) }
     // PDF size limit (0 = no limit, full quality). Saved in nezam_settings.
     var pdfMaxBytes by remember { mutableStateOf(loadPdfMaxBytes(context)) }
+    // PDF options dialog (hierarchical: explanation, then size limit).
+    var showPdfOptionsDialog by remember { mutableStateOf(false) }
 
     // Paths (changeable in the "مسیرها" section below) and the signed-report
     // switch: when on, the signed-templates folder replaces the normal one
@@ -118,8 +120,6 @@ fun ReportGeneratorScreen(viewModel: MainViewModel, initialTab: Int = 0, onBack:
     val templatesDir = File(if (signedReport) reportPaths.signedTemplatesPath else reportPaths.templatesPath)
     val outputsDir = File(reportPaths.outputsPath)
     val templatesExist = templatesDir.exists() && (templatesDir.listFiles()?.any { it.name.endsWith(".docx") } == true)
-    // Path edit dialog: which pref key is being edited (null = closed).
-    var pathDialogKey by remember { mutableStateOf<String?>(null) }
     // Advanced filter for the case list (same pattern as the history
     // filter): selection-based, from the values actually in the list.
     var filterGroup by remember { mutableStateOf<String?>(null) }
@@ -264,36 +264,6 @@ fun ReportGeneratorScreen(viewModel: MainViewModel, initialTab: Int = 0, onBack:
         )
     }
 
-    // Path edit dialog (one per path key in the "مسیرها" section).
-    if (pathDialogKey != null) {
-        val key = pathDialogKey!!
-        val current = when (key) {
-            "signed_templates_path" -> reportPaths.signedTemplatesPath
-            "outputs_path" -> reportPaths.outputsPath
-            else -> reportPaths.templatesPath
-        }
-        val title = when (key) {
-            "signed_templates_path" -> "مسیر تمپلیت‌های امضاشده"
-            "outputs_path" -> "مسیر خروجی"
-            else -> "مسیر تمپلیت‌ها"
-        }
-        PathEditDialog(
-            title = title,
-            currentPath = current,
-            defaultPath = defaultReportPath(key),
-            onSave = { value ->
-                saveReportPath(context, key, value)
-                reportPaths = when (key) {
-                    "signed_templates_path" -> reportPaths.copy(signedTemplatesPath = value)
-                    "outputs_path" -> reportPaths.copy(outputsPath = value)
-                    else -> reportPaths.copy(templatesPath = value)
-                }
-                pathDialogKey = null
-            },
-            onDismiss = { pathDialogKey = null }
-        )
-    }
-
     // Generator advanced filter dialog.
     if (showGeneratorFilterDialog) {
         GeneratorFilterDialog(
@@ -322,6 +292,21 @@ fun ReportGeneratorScreen(viewModel: MainViewModel, initialTab: Int = 0, onBack:
         )
     }
 
+    // PDF options (hierarchical): explanation first, then the size limit,
+    // then confirm. Nothing is generated until "تایید و تولید".
+    if (showPdfOptionsDialog) {
+        PdfOptionsDialog(
+            currentBytes = pdfMaxBytes,
+            onConfirm = { bytes ->
+                pdfMaxBytes = bytes
+                savePdfMaxBytes(context, bytes)
+                showPdfOptionsDialog = false
+                doGeneratePdf()
+            },
+            onDismiss = { showPdfOptionsDialog = false }
+        )
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(title = { Text("تولید گزارش") }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "بازگشت") } })
@@ -334,14 +319,20 @@ fun ReportGeneratorScreen(viewModel: MainViewModel, initialTab: Int = 0, onBack:
             }
             if (activeTab == 0) {
         LazyColumn(modifier = Modifier.weight(1f).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            // Signed report: when on, Word and PDF generation use the
-            // signed-templates folder instead of the normal one.
+            // Signed report + LTR in one compact row: when signed is on,
+            // Word and PDF generation use the signed-templates folder.
             item {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(checked = signedReport, onCheckedChange = { signedReport = it; saveSignedReport(context, it) })
-                    Column {
-                        Text("تولید گزارش امضا شده", fontSize = 14.sp)
-                        Text("از پوشهٔ تمپلیت‌های امضاشده استفاده می‌شود", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(checked = signedReport, onCheckedChange = { signedReport = it; saveSignedReport(context, it) })
+                        Column {
+                            Text("تولید گزارش امضا شده", fontSize = 13.sp)
+                            Text("از پوشهٔ تمپلیت‌های امضاشده استفاده می‌شود", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                    Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(checked = useLtr, onCheckedChange = { useLtr = it })
+                        Text("تولید چپ‌چین (LTR)", fontSize = 13.sp)
                     }
                 }
             }
@@ -388,7 +379,7 @@ fun ReportGeneratorScreen(viewModel: MainViewModel, initialTab: Int = 0, onBack:
             // the Word file is kept next to it in the same folder.
             item {
                 OutlinedButton(
-                    onClick = { doGeneratePdf() },
+                    onClick = { showPdfOptionsDialog = true },
                     modifier = Modifier.fillMaxWidth().height(50.dp),
                     enabled = !isGenerating && selectedStage > 0 && selectedCases.isNotEmpty() && templatesExist
                 ) {
@@ -397,35 +388,6 @@ fun ReportGeneratorScreen(viewModel: MainViewModel, initialTab: Int = 0, onBack:
                 }
             }
 
-            item {
-                Text("فایل PDF از روی فایل Word ساخته می‌شود و به تمپلیت مرحله نیاز دارد؛ فایل Word هم در همان پوشه ساخته می‌شود.", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-
-            // PDF size limit: the app shrinks the text (fewer pages, smaller
-            // file) only as far as needed to fit the chosen limit; "بدون
-            // محدودیت" always generates at full quality (fontScale 1.0).
-            item {
-                Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("حداکثر حجم فایل PDF:", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        pdfSizeOptions.forEach { (bytes, label) ->
-                            FilterChip(
-                                selected = pdfMaxBytes == bytes,
-                                onClick = {
-                                    pdfMaxBytes = bytes
-                                    savePdfMaxBytes(context, bytes)
-                                },
-                                label = { Text(label, fontSize = 11.sp) }
-                            )
-                        }
-                    }
-                    if (pdfMaxBytes == 0L) {
-                        Text("بدون محدودیت: خروجی با کیفیت کامل و بدون تغییر تولید می‌شود.", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    } else {
-                        Text("اگر فایل از این حد بزرگ‌تر شود، اندازهٔ متن کوچک‌تر می‌شود تا حجم در حد بماند.", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
-            }
 
             if (!templatesExist) {
                 item {
@@ -465,43 +427,17 @@ fun ReportGeneratorScreen(viewModel: MainViewModel, initialTab: Int = 0, onBack:
                 }
             }
 
-            item { Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(checked = useLtr, onCheckedChange = { useLtr = it }); Text("تولید چپ‌چین (LTR)", fontSize = 14.sp) } }
 
-            // Paths: each can be changed (typed or from suggestions) or
-            // reset to its default. The lines always show the current paths.
+            // Paths live on their own page now (in-app folder browser,
+            // no typing): one small button opens it.
             item {
-                Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("مسیرها", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                    ReportPathRow(
-                        label = "📂 تمپلیت‌ها",
-                        path = reportPaths.templatesPath,
-                        isDefault = reportPaths.templatesPath == DEFAULT_TEMPLATES_PATH,
-                        onChange = { pathDialogKey = "templates_path" },
-                        onReset = {
-                            saveReportPath(context, "templates_path", DEFAULT_TEMPLATES_PATH)
-                            reportPaths = reportPaths.copy(templatesPath = DEFAULT_TEMPLATES_PATH)
-                        }
-                    )
-                    ReportPathRow(
-                        label = "📂 تمپلیت‌های امضاشده",
-                        path = reportPaths.signedTemplatesPath,
-                        isDefault = reportPaths.signedTemplatesPath == DEFAULT_SIGNED_TEMPLATES_PATH,
-                        onChange = { pathDialogKey = "signed_templates_path" },
-                        onReset = {
-                            saveReportPath(context, "signed_templates_path", DEFAULT_SIGNED_TEMPLATES_PATH)
-                            reportPaths = reportPaths.copy(signedTemplatesPath = DEFAULT_SIGNED_TEMPLATES_PATH)
-                        }
-                    )
-                    ReportPathRow(
-                        label = "📂 خروجی",
-                        path = reportPaths.outputsPath,
-                        isDefault = reportPaths.outputsPath == DEFAULT_OUTPUTS_PATH,
-                        onChange = { pathDialogKey = "outputs_path" },
-                        onReset = {
-                            saveReportPath(context, "outputs_path", DEFAULT_OUTPUTS_PATH)
-                            reportPaths = reportPaths.copy(outputsPath = DEFAULT_OUTPUTS_PATH)
-                        }
-                    )
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    OutlinedButton(
+                        onClick = onNavigateToPaths,
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 2.dp)
+                    ) {
+                        Text("📂 مسیرها", fontSize = 12.sp)
+                    }
                 }
             }
 
@@ -915,7 +851,7 @@ private fun generateReportPdfs(
             var pdfOk = false
             var usedScale = 1f
             for (scale in listOf(1f, 0.85f, 0.7f, 0.6f)) {
-                if (convertDocxToPdf(docx, pdfFile, scale)) {
+                if (convertDocxToPdf(context, docx, pdfFile, scale)) {
                     pdfOk = true
                     usedScale = scale
                     if (maxBytes <= 0L || pdfFile.length() <= maxBytes) break
@@ -987,9 +923,27 @@ private fun replacePlaceholders(docxFile: File, case: CaseEntity, spec: Specific
     } catch (_: Exception) {}
 }
 
+/** Span-aware placeholder replacement. The old code joined every run
+ *  into one string and dumped the result into runs[0], which destroyed
+ *  the per-run formatting (text that had lived in other runs lost its
+ *  own size/bold/font). This version replaces each placeholder ONLY
+ *  inside the run(s) it spans: a placeholder inside one run is replaced
+ *  in that run alone; one split across runs puts the replacement text in
+ *  the FIRST run of the span and empties only the other runs of that
+ *  span. Every other run stays byte-for-byte identical (same text, same
+ *  properties). Runs that received replacement text get their font set
+ *  to "B Nazanin" (ascii + hAnsi + cs, set directly — XWPFRun
+ *  .setFontFamily only fills cs when it is not already set, which would
+ *  leave a preset font in place for the Persian text; verified against
+ *  the POI 5.2.5 bytecode).
+ *
+ *  Nothing else in the document changes: no sectPr/paragraph/table
+ *  change, no size/bold/color change on any run. The replacement map
+ *  and the digit handling (Persian/English digits, useLtr) are exactly
+ *  as before, including the variant with a space before the closing
+ *  guillemet («مالک »). */
 private fun replaceInParagraph(para: org.apache.poi.xwpf.usermodel.XWPFParagraph, case: CaseEntity, spec: SpecificationEntity?, engineers: List<EngineerEntity>, persianDate: String, useLtr: Boolean, userName: String = "") {
     val runs = para.runs; if (runs.isEmpty()) return
-    var fullText = runs.joinToString("") { it.text() }
 
     val rawReplacements = mapOf(
         "«کد_نوسازی»" to (spec?.renovationCode ?: ""), "«تاریخ_گزارش»" to persianDate,
@@ -1012,12 +966,105 @@ private fun replaceInParagraph(para: org.apache.poi.xwpf.usermodel.XWPFParagraph
         processed
     }
 
-    for ((key, value) in replacements) {
-        fullText = fullText.replace(key, value)
-        fullText = fullText.replace(key.replace("»", " »"), value) // Handle trailing space
-    }
+    // The text of each run, from its <w:t> elements only (XWPFRun.text()
+    // walks the run with a cursor and can surface breaks/tabs, which
+    // would shift the offsets below; the <w:t> text is exactly what is
+    // written back). Runs are never added or removed, so indices stay
+    // aligned with the original document.
+    val originalTexts = runs.map { runText(it) }
+    val runTexts = originalTexts.toMutableList()
+    // Which runs received replacement text (their font becomes B Nazanin).
+    val touched = BooleanArray(runs.size)
+    var changed = false
 
-    if (runs.isNotEmpty()) { runs[0].setText(fullText, 0); for (i in 1 until runs.size) runs[i].setText("", 0) }
+    for ((key, value) in replacements) {
+        // Both variants the old code handled: the key itself, and the key
+        // with a space before the closing guillemet.
+        for (needle in listOf(key, key.replace("»", " »"))) {
+            if (needle.isEmpty()) continue
+            // All non-overlapping occurrences in the current text, then
+            // apply them right-to-left so earlier offsets stay valid.
+            val full = runTexts.joinToString("")
+            val occurrences = mutableListOf<Int>()
+            var idx = full.indexOf(needle)
+            while (idx >= 0) {
+                occurrences.add(idx)
+                idx = full.indexOf(needle, idx + needle.length)
+            }
+            for (occ in occurrences.asReversed()) {
+                val occEnd = occ + needle.length
+                var pos = 0
+                for (i in runTexts.indices) {
+                    val runStart = pos
+                    val runEnd = pos + runTexts[i].length
+                    pos = runEnd
+                    if (runEnd <= occ || runStart >= occEnd) continue
+                    if (runStart <= occ && occ < runEnd) {
+                        // The run the placeholder starts in: it keeps the
+                        // replacement text (plus whatever of this run lies
+                        // after the placeholder, when it ends inside it).
+                        val relStart = occ - runStart
+                        val relEnd = (occEnd - runStart).coerceAtMost(runTexts[i].length)
+                        runTexts[i] = runTexts[i].substring(0, relStart) + value + runTexts[i].substring(relEnd)
+                        touched[i] = true
+                    } else if (runStart >= occ && runEnd <= occEnd) {
+                        // A run fully inside the placeholder span: emptied.
+                        runTexts[i] = ""
+                    } else {
+                        // A run the placeholder ends in: drop its covered prefix.
+                        runTexts[i] = runTexts[i].substring(occEnd - runStart)
+                    }
+                }
+                changed = true
+            }
+        }
+    }
+    if (!changed) return
+    // Write back only the runs whose text changed; untouched runs are
+    // never written, so their properties cannot change.
+    for (i in runs.indices) {
+        if (runTexts[i] != originalTexts[i]) {
+            setRunText(runs[i], runTexts[i])
+            if (touched[i]) setRunFontBNazanin(runs[i])
+        }
+    }
+}
+
+/** The text of one run, from its <w:t> elements only. */
+private fun runText(run: org.apache.poi.xwpf.usermodel.XWPFRun): String {
+    return try {
+        run.getCTR().getTList().joinToString("") { it.stringValue ?: "" }
+    } catch (_: Exception) {
+        try { run.text() } catch (_: Exception) { "" }
+    }
+}
+
+/** Replace a run's text, keeping its properties: the first <w:t> gets the
+ *  new text and any extra <w:t> elements are removed (a run with several
+ *  text elements would otherwise keep stale text after the first one).
+ *  Breaks/tabs/drawings in the run are untouched (only <w:t> is edited). */
+private fun setRunText(run: org.apache.poi.xwpf.usermodel.XWPFRun, text: String) {
+    try {
+        val ctr = run.getCTR()
+        run.setText(text, 0)
+        while (ctr.sizeOfTArray() > 1) ctr.removeT(1)
+    } catch (_: Exception) {
+    }
+}
+
+/** Set a run's font to B Nazanin (ascii + hAnsi + cs, unconditionally —
+ *  XWPFRun.setFontFamily only fills cs when it is not already set, which
+ *  would leave a preset font in place for the Persian text). */
+private fun setRunFontBNazanin(run: org.apache.poi.xwpf.usermodel.XWPFRun) {
+    try {
+        val ctr = run.getCTR()
+        val rPr = if (ctr.isSetRPr) ctr.rPr else ctr.addNewRPr()
+        val fonts = if (rPr.sizeOfRFontsArray() > 0) rPr.getRFontsArray(0) else rPr.addNewRFonts()
+        fonts.ascii = "B Nazanin"
+        fonts.hAnsi = "B Nazanin"
+        fonts.cs = "B Nazanin"
+    } catch (_: Exception) {
+    }
 }
 
 /** True when a server report was written by the current user (by engineer
@@ -1956,73 +2003,51 @@ private fun FilterDropdown(
     }
 }
 
-/** One row of the generator's "مسیرها" section: the current path with a
- *  "تغییر" button and, when it differs from the default, a reset button. */
+/** The PDF options, shown hierarchically after tapping "تولید گزارش PDF":
+ *  ۱) what the PDF is (the filled Word file, converted), ۲) the maximum
+ *  file size (the same 4 options as the old inline chips), then confirm.
+ *  Nothing is generated until "تایید و تولید"; "انصراف" closes without
+ *  generating. The chosen size is the dialog's draft until confirmed. */
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-private fun ReportPathRow(
-    label: String,
-    path: String,
-    isDefault: Boolean,
-    onChange: () -> Unit,
-    onReset: () -> Unit
-) {
-    Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
-        Column(modifier = Modifier.padding(12.dp)) {
-            Text(label, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-            Text(path, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                TextButton(onClick = onChange) { Text("تغییر", fontSize = 12.sp) }
-                if (!isDefault) {
-                    TextButton(onClick = onReset) { Text("بازگردانی به پیش‌فرض", fontSize = 12.sp) }
-                }
-            }
-        }
-    }
-}
-
-/** Edit one report path: type it, or pick a suggestion (which fills the
- *  field). Saving writes the pref; the caller refreshes its state. */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun PathEditDialog(
-    title: String,
-    currentPath: String,
-    defaultPath: String,
-    onSave: (String) -> Unit,
+private fun PdfOptionsDialog(
+    currentBytes: Long,
+    onConfirm: (Long) -> Unit,
     onDismiss: () -> Unit
 ) {
-    var draft by remember { mutableStateOf(currentPath) }
-    val suggestions = listOf(
-        "پیش‌فرض" to defaultPath,
-        "حافظه اصلی" to android.os.Environment.getExternalStorageDirectory().absolutePath,
-        "Documents" to android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOCUMENTS).absolutePath,
-        "Downloads" to android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS).absolutePath
-    )
+    var draftBytes by remember { mutableStateOf(currentBytes) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(title, fontSize = 16.sp, fontWeight = FontWeight.Bold) },
+        title = { Text("تولید گزارش PDF", fontSize = 16.sp, fontWeight = FontWeight.Bold) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(
-                    value = draft,
-                    onValueChange = { draft = it },
-                    label = { Text("مسیر", fontSize = 12.sp) },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text("۱. توضیح", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    "فایل PDF از روی فایل Word ساخته می‌شود و به تمپلیت مرحله نیاز دارد؛ فایل Word هم در همان پوشه ساخته می‌شود.",
+                    fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                Text("مسیرهای پیشنهادی:", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                suggestions.forEach { (label, path) ->
-                    TextButton(onClick = { draft = path }) {
-                        Text("$label\n$path", fontSize = 12.sp)
+                Text("۲. حداکثر حجم فایل PDF", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    pdfSizeOptions.forEach { (bytes, label) ->
+                        FilterChip(
+                            selected = draftBytes == bytes,
+                            onClick = { draftBytes = bytes },
+                            label = { Text(label, fontSize = 11.sp) }
+                        )
                     }
+                }
+                if (draftBytes == 0L) {
+                    Text("بدون محدودیت: خروجی با کیفیت کامل و بدون تغییر تولید می‌شود.", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                } else {
+                    Text("اگر فایل از این حد بزرگ‌تر شود، اندازهٔ متن کوچک‌تر می‌شود تا حجم در حد بماند.", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         },
         confirmButton = {
-            TextButton(onClick = {
-                val value = draft.trim()
-                if (value.isNotBlank()) onSave(value)
-            }) { Text("ذخیره") }
+            TextButton(onClick = { onConfirm(draftBytes) }) { Text("تایید و تولید") }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) { Text("انصراف") }
@@ -2192,12 +2217,6 @@ internal fun saveReportPath(context: Context, key: String, value: String) {
             .edit().putString(key, value).apply()
     } catch (_: Exception) {
     }
-}
-
-internal fun defaultReportPath(key: String): String = when (key) {
-    "signed_templates_path" -> DEFAULT_SIGNED_TEMPLATES_PATH
-    "outputs_path" -> DEFAULT_OUTPUTS_PATH
-    else -> DEFAULT_TEMPLATES_PATH
 }
 
 /** "تولید گزارش امضا شده": when on, Word and PDF generation use the
