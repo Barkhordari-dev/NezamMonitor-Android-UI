@@ -1,6 +1,8 @@
 package com.nezammonitor.app.ui.screens.settings
 
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -12,6 +14,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.nezammonitor.app.BuildConfig
@@ -328,6 +331,32 @@ fun SettingsScreen(viewModel: MainViewModel) {
                 Text("شناسه بسته: com.nezammonitor.app", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text("تولید و توسعه: مهندس محمد مهدی برخورداری", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text("طراحی شده برای مهندسین نظام مهندسی", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
+                Spacer(modifier = Modifier.height(12.dp))
+                Text("دریافت نسخه‌های جدید", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(6.dp))
+                GitHubLinkRow(
+                    label = "نسخه اندروید در گیت‌هاب",
+                    url = "https://github.com/Barkhordari-dev/NezamMonitor-Android-UI",
+                    onClick = { openWebLink(context, "https://github.com/Barkhordari-dev/NezamMonitor-Android-UI") }
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                GitHubLinkRow(
+                    label = "نسخه ویندوز در گیت‌هاب",
+                    url = "https://github.com/Barkhordari-dev/NezamMonitor",
+                    onClick = { openWebLink(context, "https://github.com/Barkhordari-dev/NezamMonitor") }
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    "برای دریافت بروزرسانی‌های بعدی برنامه، به پیوندهای گیت‌هاب بالا مراجعه کنید.",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    "این برنامه با هدف بهره‌مندی عمومی و به‌صورت عام‌المنفعه تهیه شده است؛ فروش آن و هرگونه استفادهٔ نامتعارف، مورد رضایت توسعه‌دهنده نیست.",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         }
     }
@@ -339,5 +368,32 @@ private fun StatMetricItem(label: String, value: String) {
         Text(value, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
         Spacer(modifier = Modifier.height(2.dp))
         Text(label, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+/** One GitHub link row in the About section: label + the full URL under it. */
+@Composable
+private fun GitHubLinkRow(label: String, url: String, onClick: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+    ) {
+        Text(label, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
+        Text(
+            url,
+            fontSize = 11.sp,
+            color = MaterialTheme.colorScheme.primary,
+            textDecoration = TextDecoration.Underline
+        )
+    }
+}
+
+/** Opens a URL in the browser; silently does nothing if no browser is available. */
+private fun openWebLink(context: Context, url: String) {
+    try {
+        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+    } catch (e: Exception) {
+        // No browser available — the URL is shown as text, so it can be copied.
     }
 }

@@ -21,16 +21,22 @@ data class PdfSection(val title: String, val lines: List<String>)
  * are tens of kilobytes, far under the 2 MB limit. Uses only the framework
  * PdfDocument; no new dependency. Text shaping (RTL order, ligatures) is
  * done by Android's text layout with the system font, which covers Persian.
+ *
+ * [fontScale] scales all text sizes (1.0 = full quality). A smaller scale
+ * packs more text per page, so fewer pages and a smaller file — used by the
+ * size-limit feature to fit a chosen maximum file size without changing
+ * the content. 1.0 always means "no quality change".
  */
 fun generateReportPdf(
     title: String,
     subtitle: String,
     sections: List<PdfSection>,
     footer: String,
-    outputFile: File
+    outputFile: File,
+    fontScale: Float = 1f
 ): File? {
     val doc = PdfDocument()
-    val writer = PdfWriter(doc)
+    val writer = PdfWriter(doc, fontScale.coerceIn(0.5f, 1f))
     return try {
         writer.drawTitle(title)
         if (subtitle.isNotBlank()) writer.drawLine(subtitle, 12f)
@@ -53,7 +59,7 @@ fun generateReportPdf(
     }
 }
 
-private class PdfWriter(private val doc: PdfDocument) {
+private class PdfWriter(private val doc: PdfDocument, private val fontScale: Float = 1f) {
     private val pageWidth = 595
     private val pageHeight = 842
     private val margin = 42f
@@ -83,7 +89,7 @@ private class PdfWriter(private val doc: PdfDocument) {
     private fun layout(text: String, size: Float, bold: Boolean, centered: Boolean): StaticLayout {
         val paint = TextPaint().apply {
             typeface = if (bold) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
-            textSize = size
+            textSize = size * fontScale
         }
         return StaticLayout.Builder.obtain(text, 0, text.length, paint, contentWidth)
             .setAlignment(if (centered) Layout.Alignment.ALIGN_CENTER else Layout.Alignment.ALIGN_NORMAL)

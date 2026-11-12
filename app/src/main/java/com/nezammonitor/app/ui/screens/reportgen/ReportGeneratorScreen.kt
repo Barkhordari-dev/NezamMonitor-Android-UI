@@ -43,7 +43,7 @@ import java.io.*
 import java.text.SimpleDateFormat
 import java.util.*
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class, ExperimentalLayoutApi::class)
 @Composable
 fun ReportGeneratorScreen(viewModel: MainViewModel, initialTab: Int = 0, onBack: () -> Unit, onNavigateToUpdate: () -> Unit = {}, onNavigateToSchedule: () -> Unit = {}, onNavigateToHelp: () -> Unit = {}) {
     val context = LocalContext.current
@@ -107,6 +107,8 @@ fun ReportGeneratorScreen(viewModel: MainViewModel, initialTab: Int = 0, onBack:
     var archiveMenuCase by remember { mutableStateOf<String?>(null) }
     // Local generation history (SharedPreferences) — refreshed after each generation
     var localHistory by remember { mutableStateOf(loadReportHistory(context)) }
+    // PDF size limit (0 = no limit, full quality). Saved in nezam_settings.
+    var pdfMaxBytes by remember { mutableStateOf(loadPdfMaxBytes(context)) }
 
     val templatesDir = File("/storage/emulated/0/NezamMonitor/templates")
     val outputsDir = File("/storage/emulated/0/NezamMonitor/outputs")
@@ -121,24 +123,31 @@ fun ReportGeneratorScreen(viewModel: MainViewModel, initialTab: Int = 0, onBack:
         statusText = ""
         resultFiles = emptyList()
         scope.launch {
-            val result = withContext(Dispatchers.IO) {
-                generateReports(
-                    context = context,
-                    cases = cases.filter { it.caseNumber in selectedCases },
-                    allCases = cases,
-                    engineers = engineers,
-                    specs = specs,
-                    stage = selectedStage,
-                    useLtr = useLtr,
-                    templatesDir = templatesDir,
-                    outputsDir = outputsDir,
-                    userName = userName
-                )
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    generateReports(
+                        context = context,
+                        cases = cases.filter { it.caseNumber in selectedCases },
+                        allCases = cases,
+                        engineers = engineers,
+                        specs = specs,
+                        stage = selectedStage,
+                        useLtr = useLtr,
+                        templatesDir = templatesDir,
+                        outputsDir = outputsDir,
+                        userName = userName
+                    )
+                }
+                resultFiles = result.files
+                statusText = result.message
+                localHistory = loadReportHistory(context)
+            } catch (e: Exception) {
+                // Never leave the button stuck: an exception used to kill
+                // this coroutine, leaving isGenerating=true and no message.
+                statusText = "❌ خطا در تولید گزارش: ${e.message ?: e.javaClass.simpleName}"
+            } finally {
+                isGenerating = false
             }
-            resultFiles = result.files
-            statusText = result.message
-            isGenerating = false
-            localHistory = loadReportHistory(context)
         }
     }
 
@@ -151,23 +160,32 @@ fun ReportGeneratorScreen(viewModel: MainViewModel, initialTab: Int = 0, onBack:
         statusText = ""
         resultFiles = emptyList()
         scope.launch {
-            val result = withContext(Dispatchers.IO) {
-                generateReportPdfs(
-                    context = context,
-                    cases = cases.filter { it.caseNumber in selectedCases },
-                    engineers = engineers,
-                    fees = fees,
-                    specs = specs,
-                    reports = reports,
-                    localHistory = localHistory,
-                    stage = selectedStage,
-                    userName = userName,
-                    outputsDir = outputsDir
-                )
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    generateReportPdfs(
+                        context = context,
+                        cases = cases.filter { it.caseNumber in selectedCases },
+                        engineers = engineers,
+                        fees = fees,
+                        specs = specs,
+                        reports = reports,
+                        localHistory = localHistory,
+                        stage = selectedStage,
+                        userName = userName,
+                        outputsDir = outputsDir,
+                        maxBytes = pdfMaxBytes
+                    )
+                }
+                resultFiles = result.files
+                statusText = result.message
+                localHistory = loadReportHistory(context)
+            } catch (e: Exception) {
+                // Same guard as doGenerate: never leave the PDF button dead
+                // with isGenerating stuck on true and no message shown.
+                statusText = "❌ خطا در تولید PDF: ${e.message ?: e.javaClass.simpleName}"
+            } finally {
+                isGenerating = false
             }
-            resultFiles = result.files
-            statusText = result.message
-            isGenerating = false
         }
     }
 
@@ -239,6 +257,32 @@ fun ReportGeneratorScreen(viewModel: MainViewModel, initialTab: Int = 0, onBack:
                 ) {
                     if (isGenerating) { CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.primary); Spacer(modifier = Modifier.width(8.dp)) }
                     Text("📄 تولید گزارش PDF", fontSize = 15.sp)
+                }
+            }
+
+            // PDF size limit: the app shrinks the text (fewer pages, smaller
+            // file) only as far as needed to fit the chosen limit; "بدون
+            // محدودیت" always generates at full quality (fontScale 1.0).
+            item {
+                Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("حداکثر حجم فایل PDF:", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        pdfSizeOptions.forEach { (bytes, label) ->
+                            FilterChip(
+                                selected = pdfMaxBytes == bytes,
+                                onClick = {
+                                    pdfMaxBytes = bytes
+                                    savePdfMaxBytes(context, bytes)
+                                },
+                                label = { Text(label, fontSize = 11.sp) }
+                            )
+                        }
+                    }
+                    if (pdfMaxBytes == 0L) {
+                        Text("بدون محدودیت: خروجی با کیفیت کامل و بدون تغییر تولید می‌شود.", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    } else {
+                        Text("اگر فایل از این حد بزرگ‌تر شود، اندازهٔ متن کوچک‌تر می‌شود تا حجم در حد بماند.", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 }
             }
 
@@ -572,7 +616,19 @@ private fun buildReportPdfSections(
 /** Generate a PDF report for each selected case (same data as the Word
  *  report, rendered as vector text on A4 pages — sharp at any zoom and
  *  tens of kilobytes, far under the 2 MB limit). No Word template is
- *  needed. The PDF goes into the same per-case folder as its Word file. */
+ *  needed. The PDF goes into the same per-case folder as its Word file
+ *  and is recorded in the generation history (fileType "pdf") so it
+ *  shows in the history tab next to the Word file.
+ *
+ *  [maxBytes] is the per-file size limit (0 = no limit, full quality).
+ *  When a limit is set and a file comes out over it, the report is
+ *  regenerated with a smaller font (fewer pages, smaller file) until it
+ *  fits or the floor (0.6) is reached. With no limit the first,
+ *  full-quality file is always kept — the output is never changed.
+ *
+ *  Each case is guarded on its own: one bad case no longer aborts the
+ *  whole batch (that used to kill the coroutine and leave the PDF
+ *  button dead with isGenerating stuck on). */
 private fun generateReportPdfs(
     context: Context,
     cases: List<CaseEntity>,
@@ -583,7 +639,8 @@ private fun generateReportPdfs(
     localHistory: List<GeneratedReportRecord>,
     stage: Int,
     userName: String,
-    outputsDir: File
+    outputsDir: File,
+    maxBytes: Long = 0L
 ): GenerateResult {
     val files = mutableListOf<File>()
     val stageName = stageNameForNumber(stage)
@@ -591,46 +648,73 @@ private fun generateReportPdfs(
     val today = todayJalali()
     outputsDir.mkdirs()
     val persianDate = toPersianDate(Date()).replace("/", "-")
+    val timeNow = SimpleDateFormat("HH:mm", Locale.US).format(Date())
     var count = 0
     var totalBytes = 0L
+    var reducedCount = 0
+    var failedCount = 0
     for ((index, case) in cases.withIndex()) {
-        val rowNum = String.format("%02d", index + 1)
-        val reversedCase = reverseCaseNumber(case.caseNumber)
-        val safeOwner = case.owner.replace(Regex("[/\\\\:*?\"<>|]"), "_")
-        val folderNum = toPersianDigits(rowNum)
-        val folder = File(outputsDir, "$folderNum - $safeOwner - $reversedCase")
-        folder.mkdirs()
-        val spec = specs.firstOrNull { it.caseNumber == case.caseNumber }
-        val caseEngineers = engineers.filter { it.caseNumber == case.caseNumber }
-        val (resolvedGroupRaw, resolvedDiscipline) = resolveCaseGroupDiscipline(case, spec, engineers, fees, reports)
-        val stageCount = scheduleConfig.stageCount(resolvedGroupRaw, resolvedDiscipline)
-        val permitRaw = spec?.permitDate?.ifBlank { case.permitDate } ?: case.permitDate
-        val registeredStages = reports.filter { it.caseNumber == case.caseNumber && isOwnServerReport(it, userName) }
-            .mapNotNull { stageNumberFromTitle(it.stage).takeIf { n -> n > 0 } }.toSet()
-        val schedule = scheduleForCase(permitRaw, resolvedGroupRaw, stageCount, registeredStages, today, monthsOverride = scheduleConfig.months(resolvedGroupRaw))
-        val historyByStage = historyByStageFor(case, localHistory, reports, userName)
-        val sections = buildReportPdfSections(case, spec, caseEngineers, resolvedGroupRaw, resolvedDiscipline, schedule, historyByStage, today, userName)
-        val fileName = "گزارش مرحله $stageName $safeOwner - $persianDate.pdf"
-        val outputFile = File(folder, fileName)
-        val pdf = generateReportPdf(
-            title = "گزارش مرحله $stageName",
-            subtitle = "مانیتورینگ نظام مهندسی",
-            sections = sections,
-            footer = "تاریخ گزارش: $persianDate",
-            outputFile = outputFile
-        )
-        if (pdf != null) {
-            files.add(pdf)
-            totalBytes += pdf.length()
-            count++
+        try {
+            val rowNum = String.format("%02d", index + 1)
+            val reversedCase = reverseCaseNumber(case.caseNumber)
+            val safeOwner = case.owner.replace(Regex("[/\\\\:*?\"<>|]"), "_")
+            val folderNum = toPersianDigits(rowNum)
+            val folder = File(outputsDir, "$folderNum - $safeOwner - $reversedCase")
+            folder.mkdirs()
+            val spec = specs.firstOrNull { it.caseNumber == case.caseNumber }
+            val caseEngineers = engineers.filter { it.caseNumber == case.caseNumber }
+            val (resolvedGroupRaw, resolvedDiscipline) = resolveCaseGroupDiscipline(case, spec, engineers, fees, reports)
+            val stageCount = scheduleConfig.stageCount(resolvedGroupRaw, resolvedDiscipline)
+            val permitRaw = spec?.permitDate?.ifBlank { case.permitDate } ?: case.permitDate
+            val registeredStages = reports.filter { it.caseNumber == case.caseNumber && isOwnServerReport(it, userName) }
+                .mapNotNull { stageNumberFromTitle(it.stage).takeIf { n -> n > 0 } }.toSet()
+            val schedule = scheduleForCase(permitRaw, resolvedGroupRaw, stageCount, registeredStages, today, monthsOverride = scheduleConfig.months(resolvedGroupRaw))
+            val historyByStage = historyByStageFor(case, localHistory, reports, userName)
+            val sections = buildReportPdfSections(case, spec, caseEngineers, resolvedGroupRaw, resolvedDiscipline, schedule, historyByStage, today, userName)
+            val fileName = "گزارش مرحله $stageName $safeOwner - $persianDate.pdf"
+            val outputFile = File(folder, fileName)
+            var pdf: File? = null
+            var usedScale = 1f
+            for (scale in listOf(1f, 0.85f, 0.7f, 0.6f)) {
+                val attempt = generateReportPdf(
+                    title = "گزارش مرحله $stageName",
+                    subtitle = "مانیتورینگ نظام مهندسی",
+                    sections = sections,
+                    footer = "تاریخ گزارش: $persianDate",
+                    outputFile = outputFile,
+                    fontScale = scale
+                ) ?: break
+                pdf = attempt
+                usedScale = scale
+                if (maxBytes <= 0L || attempt.length() <= maxBytes) break
+            }
+            if (pdf != null) {
+                files.add(pdf)
+                totalBytes += pdf.length()
+                count++
+                if (usedScale < 1f) reducedCount++
+                saveReportHistory(context, listOf(GeneratedReportRecord(
+                    caseNumber = case.caseNumber, owner = case.owner, stage = stage,
+                    createdAt = persianDate, createdTime = timeNow, filePath = pdf.absolutePath,
+                    folderPath = folder.absolutePath, fileExists = true, fileType = "pdf"
+                )))
+            } else {
+                failedCount++
+            }
+        } catch (_: Exception) {
+            failedCount++
         }
     }
     val sizeText = if (totalBytes < 1024 * 1024) "${totalBytes / 1024} کیلوبایت" else "${"%.1f".format(totalBytes / 1024.0 / 1024.0)} مگابایت"
-    return GenerateResult(
-        files,
-        if (count > 0) "✅ $count گزارش PDF مرحله $stageName تولید شد ($sizeText)\n📁 ${outputsDir.absolutePath}"
-        else "❌ تولید PDF ناموفق بود"
-    )
+    val message = when {
+        count > 0 -> buildString {
+            append("✅ $count گزارش PDF مرحله $stageName تولید شد ($sizeText)\n📁 ${outputsDir.absolutePath}")
+            if (reducedCount > 0) append("\nℹ️ اندازهٔ متن $reducedCount گزارش برای رعایت حد حجم کوچک‌تر شد.")
+            if (failedCount > 0) append("\n⚠️ $failedCount گزارش تولید نشد.")
+        }
+        else -> "❌ تولید PDF ناموفق بود"
+    }
+    return GenerateResult(files, message)
 }
 
 private fun findTemplate(templatesDir: File, stageName: String, disciplines: List<String> = emptyList()): File? {
@@ -768,7 +852,14 @@ private fun generationHistoryText(localRec: GeneratedReportRecord?, serverRep: R
 private sealed interface HistoryItem {
     val date: String
     val stageNum: Int
-    data class Local(val record: GeneratedReportRecord, val index: Int) : HistoryItem {
+    // A local report is a GROUP of the files generated for one case+stage:
+    // a Word file and/or a PDF file. They share one row, with the file type
+    // (Word / PDF) shown next to «روی سیستم» and open/share/delete/print
+    // actions for each file separately. [indices] are the records' positions
+    // in the full localHistory list, so deleting one file removes only it.
+    data class Local(val records: List<GeneratedReportRecord>, val indices: List<Int>) : HistoryItem {
+        // Representative record (the newest file) for date/owner display.
+        val record: GeneratedReportRecord get() = records.maxByOrNull { normalizeDigits(it.createdAt + it.createdTime) } ?: records.first()
         override val date: String get() = record.createdAt
         override val stageNum: Int get() = record.stage
     }
@@ -835,7 +926,14 @@ private fun HistoryTab(
     // same cases are excluded. Local reports were generated on this phone, so
     // they are the user's by definition.
     val items: List<HistoryItem> = remember(localHistory, serverReports, ownerByCase, userName) {
-        val local = localHistory.mapIndexed { i, r -> HistoryItem.Local(r, i) }
+        // Local files are grouped by case+stage: a Word file and its PDF
+        // share one row (see HistoryItem.Local).
+        val local = localHistory.mapIndexed { i, r -> i to r }
+            .groupBy { (_, r) -> r.caseNumber to r.stage }
+            .values.map { pairs ->
+                val sorted = pairs.sortedBy { (i, _) -> i }
+                HistoryItem.Local(records = sorted.map { it.second }, indices = sorted.map { it.first })
+            }
         val server = serverReports
             .filter { isOwnServerReport(it, userName) }
             .map { HistoryItem.Server(it, ownerByCase[it.caseNumber] ?: "") }
@@ -992,6 +1090,29 @@ private fun HistoryTab(
             } else {
                 printError = "خطا در آماده‌سازی فایل چاپ"
             }
+        }
+    }
+
+    // Print an already-generated PDF file directly (no rebuild needed).
+    // Used for a PDF record in the history; a Word record still goes
+    // through printLocalReport (rebuilt as a PDF from the case's data).
+    fun printLocalPdfFile(record: GeneratedReportRecord) {
+        if (printingId != null) return
+        printingId = -1L
+        printError = ""
+        scope.launch {
+            val file = File(record.filePath)
+            if (!file.exists()) {
+                printingId = null
+                printError = "فایل PDF حذف شده است"
+                return@launch
+            }
+            try {
+                printPdfFile(context, file, "گزارش ${toPersianChars(record.owner)}")
+            } catch (_: Exception) {
+                printError = "خطا در ارسال به پرینتر"
+            }
+            printingId = null
         }
     }
 
@@ -1170,77 +1291,113 @@ private fun HistoryTab(
             }
         }
 
-        itemsIndexed(filteredItems) { index, item ->
+        items(filteredItems) { item ->
             when (item) {
                 is HistoryItem.Local -> {
                     val record = item.record
-                    val fileExists = File(record.filePath).exists()
                     val stageName = stageNameForNumber(record.stage)
+                    val hasWord = item.records.any { it.fileType != "pdf" && !it.filePath.lowercase().endsWith(".pdf") }
+                    val hasPdf = item.records.any { it.fileType == "pdf" || it.filePath.lowercase().endsWith(".pdf") }
+                    val anyExists = item.records.any { File(it.filePath).exists() }
                     NezamCard(
                         modifier = Modifier.fillMaxWidth(),
-                        containerColor = if (fileExists) MaterialTheme.colorScheme.surface
+                        containerColor = if (anyExists) MaterialTheme.colorScheme.surface
                         else MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f),
                         copyText = "${record.caseNumber}\n${toPersianChars(record.owner)}\nگزارش مرحله $stageName — ${displayShamsiDate(record.createdAt + " " + record.createdTime)}",
                         extraItems = listOf(
-                            "🖨️ چاپ" to { printLocalReport(record) }
+                            "🖨️ چاپ" to {
+                                if (hasPdf) {
+                                    val pdfRec = item.records.firstOrNull { it.fileType == "pdf" || it.filePath.lowercase().endsWith(".pdf") }
+                                    if (pdfRec != null) printLocalPdfFile(pdfRec) else printLocalReport(record)
+                                } else printLocalReport(record)
+                            }
                         )
                     ) {
                         Column(modifier = Modifier.padding(12.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(if (fileExists) "✅" else "⚠️", fontSize = 16.sp)
+                                Text(if (anyExists) "✅" else "⚠️", fontSize = 16.sp)
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(toPersianChars(record.owner), fontSize = 14.sp, fontWeight = FontWeight.Bold)
                                     Text("گزارش مرحله $stageName", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     Text(record.caseNumber, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     Text("📅 ${displayShamsiDate(record.createdAt + " " + record.createdTime)}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    if (!fileExists) {
-                                        Text("⚠️ فایل حذف شده", fontSize = 11.sp, color = MaterialTheme.colorScheme.error)
-                                    }
                                 }
-                                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
-                                    Text("روی سیستم", fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp), color = MaterialTheme.colorScheme.onSecondaryContainer)
+                                Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
+                                        Text("روی سیستم", fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp), color = MaterialTheme.colorScheme.onSecondaryContainer)
+                                    }
+                                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        if (hasWord) Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
+                                            Text("Word", fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp), color = MaterialTheme.colorScheme.onPrimaryContainer)
+                                        }
+                                        if (hasPdf) Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)) {
+                                            Text("PDF", fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp), color = MaterialTheme.colorScheme.onTertiaryContainer)
+                                        }
+                                    }
                                 }
                             }
 
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                if (fileExists) {
-                                    TextButton(onClick = {
-                                        try {
-                                            val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", File(record.filePath))
-                                            val intent = Intent(Intent.ACTION_VIEW).apply {
-                                                setDataAndType(uri, "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
-                                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                            }
-                                            context.startActivity(intent)
-                                        } catch (_: Exception) {}
-                                    }) { Text("📁 باز کردن", fontSize = 12.sp) }
-
-                                    TextButton(onClick = {
-                                        try {
-                                            val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", File(record.filePath))
-                                            val intent = Intent(Intent.ACTION_SEND).apply {
-                                                type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                                                putExtra(Intent.EXTRA_STREAM, uri)
-                                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                            }
-                                            context.startActivity(Intent.createChooser(intent, "اشتراک\u200Cگذاری"))
-                                        } catch (_: Exception) {}
-                                    }) { Text("📤 اشتراک", fontSize = 12.sp) }
+                            // One row per file (Word and/or PDF) with its own
+                            // open / share / delete / print actions.
+                            item.records.forEachIndexed { pos, rec ->
+                                val recIndex = item.indices[pos]
+                                val isPdf = rec.fileType == "pdf" || rec.filePath.lowercase().endsWith(".pdf")
+                                val exists = File(rec.filePath).exists()
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Divider(color = MaterialTheme.colorScheme.outlineVariant)
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(if (isPdf) "📄" else "📝", fontSize = 14.sp)
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(if (isPdf) "فایل PDF" else "فایل Word", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                        Text(File(rec.filePath).name, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        if (!exists) {
+                                            Text("⚠️ فایل حذف شده", fontSize = 11.sp, color = MaterialTheme.colorScheme.error)
+                                        }
+                                    }
                                 }
+                                Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    if (exists) {
+                                        TextButton(onClick = {
+                                            try {
+                                                val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", File(rec.filePath))
+                                                val intent = Intent(Intent.ACTION_VIEW).apply {
+                                                    setDataAndType(uri, mimeFor(rec.filePath))
+                                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                                }
+                                                context.startActivity(intent)
+                                            } catch (_: Exception) {}
+                                        }) { Text("📁 باز کردن", fontSize = 12.sp) }
 
-                                TextButton(onClick = { showDeleteConfirm = index }) {
-                                    Text("🗑 حذف", fontSize = 12.sp, color = MaterialTheme.colorScheme.error)
-                                }
+                                        TextButton(onClick = {
+                                            try {
+                                                val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", File(rec.filePath))
+                                                val intent = Intent(Intent.ACTION_SEND).apply {
+                                                    type = mimeFor(rec.filePath)
+                                                    putExtra(Intent.EXTRA_STREAM, uri)
+                                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                                }
+                                                context.startActivity(Intent.createChooser(intent, "اشتراک‌گذاری"))
+                                            } catch (_: Exception) {}
+                                        }) { Text("📤 اشتراک", fontSize = 12.sp) }
+                                    }
 
-                                if (fileExists) {
-                                    if (printingId == -1L) {
-                                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-                                        Text("در حال آماده‌سازی...", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    } else {
-                                        TextButton(onClick = { printLocalReport(record) }) {
-                                            Text("🖨️ چاپ", fontSize = 12.sp)
+                                    TextButton(onClick = { showDeleteConfirm = recIndex }) {
+                                        Text("🗑 حذف", fontSize = 12.sp, color = MaterialTheme.colorScheme.error)
+                                    }
+
+                                    if (exists) {
+                                        if (printingId == -1L) {
+                                            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                                            Text("در حال آماده‌سازی...", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        } else {
+                                            TextButton(onClick = {
+                                                if (isPdf) printLocalPdfFile(rec) else printLocalReport(rec)
+                                            }) {
+                                                Text("🖨️ چاپ", fontSize = 12.sp)
+                                            }
                                         }
                                     }
                                 }
@@ -1315,19 +1472,20 @@ private fun HistoryTab(
         }
     }
 
-    // Delete confirmation dialog (local items only)
+    // Delete confirmation dialog (local items only). showDeleteConfirm now
+    // holds the record's index in the full localHistory list (per-file
+    // delete: removing the Word file leaves the PDF, and vice versa).
     if (showDeleteConfirm >= 0) {
-        val item = filteredItems.getOrNull(showDeleteConfirm) as? HistoryItem.Local
+        val rec = localHistory.getOrNull(showDeleteConfirm)
+        val isPdf = rec?.fileType == "pdf" || (rec?.filePath ?: "").lowercase().endsWith(".pdf")
         AlertDialog(
             onDismissRequest = { showDeleteConfirm = -1 },
             title = { Text("حذف گزارش") },
-            text = { Text("آیا از حذف گزارش ${toPersianChars(item?.record?.owner ?: "")} مطمئنید؟\nفایل نیز از حافظه حذف خواهد شد.") },
+            text = { Text("آیا از حذف ${if (isPdf) "فایل PDF" else "فایل Word"} گزارش ${toPersianChars(rec?.owner ?: "")} مطمئنید؟\nفایل نیز از حافظه حذف خواهد شد.") },
             confirmButton = {
                 TextButton(onClick = {
-                    if (item != null) {
-                        deleteReportHistoryItem(context, item.index)
-                        onHistoryChanged(loadReportHistory(context))
-                    }
+                    deleteReportHistoryItem(context, showDeleteConfirm)
+                    onHistoryChanged(loadReportHistory(context))
                     showDeleteConfirm = -1
                 }) { Text("حذف", color = MaterialTheme.colorScheme.error) }
             },
@@ -1535,7 +1693,23 @@ private fun toPersianDate(date: Date): String {
 
 // ==================== HISTORY ====================
 
-data class GeneratedReportRecord(val caseNumber: String = "", val owner: String = "", val stage: Int = 0, val createdAt: String = "", val createdTime: String = "", val filePath: String = "", val folderPath: String = "", val fileExists: Boolean = true)
+data class GeneratedReportRecord(val caseNumber: String = "", val owner: String = "", val stage: Int = 0, val createdAt: String = "", val createdTime: String = "", val filePath: String = "", val folderPath: String = "", val fileExists: Boolean = true, val fileType: String = "")
+
+/** PDF size-limit options: max bytes per file (0 = no limit, full quality). */
+internal val pdfSizeOptions: List<Pair<Long, String>> = listOf(
+    0L to "بدون محدودیت",
+    2L * 1024 * 1024 to "۲ مگابایت",
+    1L * 1024 * 1024 to "۱ مگابایت",
+    512L * 1024 to "۵۰۰ کیلوبایت"
+)
+
+/** Max PDF file size in bytes (0 = no limit, full quality). Stored in nezam_settings. */
+internal fun loadPdfMaxBytes(context: Context): Long =
+    try { context.getSharedPreferences("nezam_settings", Context.MODE_PRIVATE).getLong("pdf_max_bytes", 0L) } catch (_: Exception) { 0L }
+
+internal fun savePdfMaxBytes(context: Context, bytes: Long) {
+    try { context.getSharedPreferences("nezam_settings", Context.MODE_PRIVATE).edit().putLong("pdf_max_bytes", bytes).apply() } catch (_: Exception) {}
+}
 
 internal fun saveReportHistory(context: Context, records: List<GeneratedReportRecord>) {
     try { val prefs = context.getSharedPreferences("nezam_report_history", Context.MODE_PRIVATE); val existing = loadReportHistory(context).toMutableList(); existing.addAll(records); prefs.edit().putString("history", com.google.gson.Gson().toJson(existing)).apply() } catch (_: Exception) {}
@@ -1559,7 +1733,11 @@ internal fun loadReportHistory(context: Context): List<GeneratedReportRecord> {
                 createdAt = r.createdAt ?: "",
                 createdTime = r.createdTime ?: "",
                 filePath = r.filePath ?: "",
-                folderPath = r.folderPath ?: ""
+                folderPath = r.folderPath ?: "",
+                // fileType was added in 3.7.12: old records have null here
+                // (Gson bypasses the constructor default) — derive it from
+                // the file extension so old Word records still show "Word".
+                fileType = r.fileType?.ifBlank { null } ?: if ((r.filePath ?: "").lowercase().endsWith(".pdf")) "pdf" else "word"
             )
         } else emptyList()
     } catch (_: Exception) { emptyList() }

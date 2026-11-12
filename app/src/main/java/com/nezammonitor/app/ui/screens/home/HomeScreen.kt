@@ -54,6 +54,9 @@ fun HomeScreen(
     onNavigateToUpdate: () -> Unit = {},
     onNavigateToReportGenerator: () -> Unit = {},
     onNavigateToReportHistory: () -> Unit = {},
+    onNavigateToReceipts: () -> Unit = {},
+    onNavigateToArchive: () -> Unit = {},
+    onNavigateToChanges: () -> Unit = {},
     onNavigateToSettings: () -> Unit = {}
 ) {
     val context = LocalContext.current
@@ -313,10 +316,40 @@ fun HomeScreen(
 
         item(span = { GridItemSpan(2) }) {
             MenuLinkCard(
-                emoji = "📦",
-                title = "سابقه گزارش‌های تولیدشده",
-                subtitle = "مشاهده و اشتراک‌گذاری گزارشات ذخیره‌شده",
-                onClick = onNavigateToReportHistory,
+                emoji = "🔄",
+                title = "بروزرسانی",
+                subtitle = "دریافت پرونده‌های جدید از سامانه",
+                onClick = onNavigateToUpdate,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+
+        item(span = { GridItemSpan(2) }) {
+            MenuLinkCard(
+                emoji = "🧾",
+                title = "دریافتی‌ها",
+                subtitle = "مشاهده و مدیریت رسیدهای دریافتی",
+                onClick = onNavigateToReceipts,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+
+        item(span = { GridItemSpan(2) }) {
+            MenuLinkCard(
+                emoji = "🗄️",
+                title = "بایگانی",
+                subtitle = "مشاهده و مدیریت پرونده‌های بایگانی‌شده",
+                onClick = onNavigateToArchive,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+
+        item(span = { GridItemSpan(2) }) {
+            MenuLinkCard(
+                emoji = "📸",
+                title = "تغییرات",
+                subtitle = "مشاهده تغییرات و ادغام اسنپ‌شات‌ها",
+                onClick = onNavigateToChanges,
                 modifier = Modifier.fillMaxWidth()
             )
         }

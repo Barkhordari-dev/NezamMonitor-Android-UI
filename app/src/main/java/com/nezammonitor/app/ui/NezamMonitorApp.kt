@@ -1,5 +1,6 @@
 package com.nezammonitor.app.ui
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -15,6 +16,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -92,11 +95,13 @@ fun NezamMonitorApp(viewModel: MainViewModel) {
                                 .background(Color.White.copy(alpha = 0.22f)),
                             contentAlignment = Alignment.Center
                         ) {
-                            Text(
-                                userInitials(displayName),
-                                fontWeight = FontWeight.ExtraBold,
-                                fontSize = 18.sp,
-                                color = MaterialTheme.colorScheme.onPrimary
+                            // App icon in the middle of the circle (replaces
+                            // the user monogram that used to be here).
+                            Image(
+                                painter = painterResource(id = R.mipmap.ic_launcher),
+                                contentDescription = "آیکون برنامه",
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize()
                             )
                         }
                         Column {
@@ -258,6 +263,9 @@ fun NezamMonitorApp(viewModel: MainViewModel) {
                             onNavigateToUpdate = { navController.navigate(Screen.Update.route) },
                             onNavigateToReportGenerator = { navController.navigate(Screen.ReportGenerator.route) },
                             onNavigateToReportHistory = { navController.navigate(Screen.ReportHistory.route) },
+                            onNavigateToReceipts = { navController.navigate(Screen.Receipts.route) },
+                            onNavigateToArchive = { navController.navigate(Screen.Archive.route) },
+                            onNavigateToChanges = { navController.navigate(Screen.Changes.route) },
                             onNavigateToSettings = { navController.navigate(Screen.Settings.route) }
                         )
                     }

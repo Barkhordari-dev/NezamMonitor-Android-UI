@@ -75,9 +75,9 @@ fun diffSnapshots(current: SnapshotData, previous: SnapshotData): SnapshotDiff {
 }
 
 /** The Changes (Snapshots) menu: every sync/import saves a snapshot of the
- *  dataset. Pick one to see what changed versus the previous one, select
- *  several and merge them into the live data (new info wins, empty fields
- *  never overwrite), or select and delete old ones. */
+ *  dataset. Pick one to see what changed versus the previous one, pick two
+ *  and compare them, select several and merge them into the live data (new
+ *  info wins, empty fields never overwrite), or select and delete old ones. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChangesScreen(viewModel: MainViewModel, onBack: () -> Unit) {
@@ -85,6 +85,9 @@ fun ChangesScreen(viewModel: MainViewModel, onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
     var selectedIds by remember { mutableStateOf(setOf<Long>()) }
     var expandedId by remember { mutableStateOf<Long?>(null) }
+    // The two snapshots being compared (older id first, newer id second);
+    // null when no comparison is open.
+    var comparePair by remember { mutableStateOf<Pair<Long, Long>?>(null) }
     var showMergeConfirm by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var statusText by remember { mutableStateOf("") }
@@ -101,6 +104,18 @@ fun ChangesScreen(viewModel: MainViewModel, onBack: () -> Unit) {
         diffSnapshots(curData, prevData)
     }
 
+    // The diff for the two snapshots being compared: the older one (smaller
+    // id) is the "previous", the newer one (larger id) is the "current".
+    // createdAt is a Jalali string, so ids — not dates — decide the order.
+    val compareDiff: SnapshotDiff? = remember(comparePair, snapshots) {
+        val pair = comparePair ?: return@remember null
+        val older = snapshots.firstOrNull { it.id == pair.first } ?: return@remember null
+        val newer = snapshots.firstOrNull { it.id == pair.second } ?: return@remember null
+        val olderData = SnapshotStore.fromJson(older.dataJson) ?: return@remember null
+        val newerData = SnapshotStore.fromJson(newer.dataJson) ?: return@remember null
+        diffSnapshots(newerData, olderData)
+    }
+
     fun doMerge() {
         if (selectedIds.isEmpty() || isWorking) return
         isWorking = true
@@ -111,6 +126,7 @@ fun ChangesScreen(viewModel: MainViewModel, onBack: () -> Unit) {
             statusText = result
             isWorking = false
             selectedIds = emptySet()
+            comparePair = null
         }
     }
 
@@ -121,6 +137,7 @@ fun ChangesScreen(viewModel: MainViewModel, onBack: () -> Unit) {
         statusText = "✅ ${selectedIds.size} اسنپ‌شات حذف شد"
         selectedIds = emptySet()
         expandedId = null
+        comparePair = null
         isWorking = false
     }
 
@@ -169,7 +186,7 @@ fun ChangesScreen(viewModel: MainViewModel, onBack: () -> Unit) {
     ) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize().padding(16.dp)) {
             Text(
-                "هر بروزرسانی و ایمپورت یک اسنپ‌شات از داده‌ها ذخیره می‌کند. روی یکی بزنید تا تغییرهایش نسبت به قبلی را ببینید؛ چند تا را انتخاب کنید و ادغام کنید یا حذف کنید.",
+                "هر بروزرسانی و ایمپورت یک اسنپ‌شات از داده‌ها ذخیره می‌کند. روی یکی بزنید تا تغییرهایش نسبت به قبلی را ببینید؛ دو تا را انتخاب کنید و با «مقایسه دو اسنپ‌شات» تغییرها را ببینید؛ چند تا را انتخاب کنید و ادغام کنید یا حذف کنید.",
                 fontSize = 12.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -207,6 +224,25 @@ fun ChangesScreen(viewModel: MainViewModel, onBack: () -> Unit) {
                         Text("🗑 حذف (${selectedIds.size})", fontSize = 13.sp, color = MaterialTheme.colorScheme.error)
                     }
                 }
+                // Exactly two selected: compare them (older → newer). The
+                // button sits on its own row because the full label does not
+                // fit next to merge/delete in a three-button row.
+                if (selectedIds.size == 2) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedButton(
+                        onClick = {
+                            val selected = snapshots.filter { it.id in selectedIds }.sortedBy { it.id }
+                            if (selected.size == 2) {
+                                comparePair = selected[0].id to selected[1].id
+                                expandedId = null
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !isWorking
+                    ) {
+                        Text("🔍 مقایسه دو اسنپ‌شات", fontSize = 13.sp)
+                    }
+                }
                 Spacer(modifier = Modifier.height(12.dp))
             }
 
@@ -218,6 +254,47 @@ fun ChangesScreen(viewModel: MainViewModel, onBack: () -> Unit) {
                 )
             } else {
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    // The open two-snapshot comparison: first item of the
+                    // list, so a long full diff scrolls with the rest.
+                    val pair = comparePair
+                    if (pair != null && compareDiff != null) {
+                        val older = snapshots.firstOrNull { it.id == pair.first }
+                        val newer = snapshots.firstOrNull { it.id == pair.second }
+                        item {
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.secondaryContainer
+                                )
+                            ) {
+                                Column(modifier = Modifier.padding(12.dp)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text("🔍 مقایسهٔ دو اسنپ‌شات", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                                            if (older != null && newer != null) {
+                                                Text(
+                                                    "از «${older.label}» (${displayShamsiDate(older.createdAt)}) به «${newer.label}» (${displayShamsiDate(newer.createdAt)})",
+                                                    fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                        }
+                                        IconButton(onClick = { comparePair = null }) {
+                                            Text("✕", fontSize = 16.sp)
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Divider()
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    SnapshotDiffContent(
+                                        diff = compareDiff,
+                                        header = "تغییرها از اسنپ‌شات قبلی به اسنپ‌شات جدید:",
+                                        showAll = true
+                                    )
+                                }
+                            }
+                        }
+                    }
+
                     items(snapshots) { snap ->
                         val selected = snap.id in selectedIds
                         val expanded = expandedId == snap.id
@@ -235,6 +312,7 @@ fun ChangesScreen(viewModel: MainViewModel, onBack: () -> Unit) {
                                         checked = selected,
                                         onCheckedChange = {
                                             selectedIds = if (it) selectedIds + snap.id else selectedIds - snap.id
+                                            comparePair = null
                                         }
                                     )
                                     Column(modifier = Modifier.weight(1f)) {
@@ -252,45 +330,11 @@ fun ChangesScreen(viewModel: MainViewModel, onBack: () -> Unit) {
                                     Spacer(modifier = Modifier.height(8.dp))
                                     Divider()
                                     Spacer(modifier = Modifier.height(8.dp))
-                                    val diff = expandedDiff
-                                    Text("تغییر نسبت به اسنپ‌شات قبلی:", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Text("➕ ${diff.addedCases.size} پروندهٔ جدید", fontSize = 12.sp)
-                                    Text("➖ ${diff.removedCases.size} پروندهٔ حذف‌شده", fontSize = 12.sp)
-                                    Text("✏️ ${diff.changedCases.size} پروندهٔ تغییرکرده", fontSize = 12.sp)
-                                    Text(
-                                        "حق‌الزحمه: ${if (diff.feeDelta >= 0) "+" else ""}${diff.feeDelta} | گزارش: ${if (diff.reportDelta >= 0) "+" else ""}${diff.reportDelta}",
-                                        fontSize = 12.sp
+                                    SnapshotDiffContent(
+                                        diff = expandedDiff,
+                                        header = "تغییر نسبت به اسنپ‌شات قبلی:",
+                                        showAll = false
                                     )
-                                    val shown = diff.changedCases.take(10)
-                                    if (shown.isNotEmpty()) {
-                                        Spacer(modifier = Modifier.height(8.dp))
-                                        shown.forEach { cc ->
-                                            Text(
-                                                "${cc.caseNumber} — ${cc.owner}",
-                                                fontSize = 12.sp, fontWeight = FontWeight.Bold
-                                            )
-                                            cc.changes.forEach { ch ->
-                                                Text("  • $ch", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                            }
-                                        }
-                                        if (diff.changedCases.size > 10) {
-                                            Text("…و ${diff.changedCases.size - 10} مورد دیگر", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        }
-                                    }
-                                    if (diff.addedCases.isNotEmpty()) {
-                                        Spacer(modifier = Modifier.height(4.dp))
-                                        Text(
-                                            "پرونده‌های جدید: " + diff.addedCases.take(5).joinToString("، ") { it.caseNumber },
-                                            fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                    if (diff.removedCases.isNotEmpty()) {
-                                        Text(
-                                            "پرونده‌های حذف‌شده: " + diff.removedCases.take(5).joinToString("، ") { it.caseNumber },
-                                            fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
                                 }
                             }
                         }
@@ -298,5 +342,54 @@ fun ChangesScreen(viewModel: MainViewModel, onBack: () -> Unit) {
                 }
             }
         }
+    }
+}
+
+/** The body of a snapshot diff, shared by the single-snapshot expansion and
+ *  the two-snapshot comparison. `showAll = false` keeps the old truncation
+ *  (10 changed cases, 5 added/removed numbers); `showAll = true` shows the
+ *  full diff — every changed case with all of its per-field changes, and
+ *  every added/removed case number. */
+@Composable
+private fun SnapshotDiffContent(diff: SnapshotDiff, header: String, showAll: Boolean) {
+    Text(header, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+    Spacer(modifier = Modifier.height(4.dp))
+    Text("➕ ${diff.addedCases.size} پروندهٔ جدید", fontSize = 12.sp)
+    Text("➖ ${diff.removedCases.size} پروندهٔ حذف‌شده", fontSize = 12.sp)
+    Text("✏️ ${diff.changedCases.size} پروندهٔ تغییرکرده", fontSize = 12.sp)
+    Text(
+        "حق‌الزحمه: ${if (diff.feeDelta >= 0) "+" else ""}${diff.feeDelta} | گزارش: ${if (diff.reportDelta >= 0) "+" else ""}${diff.reportDelta}",
+        fontSize = 12.sp
+    )
+    val shown = if (showAll) diff.changedCases else diff.changedCases.take(10)
+    if (shown.isNotEmpty()) {
+        Spacer(modifier = Modifier.height(8.dp))
+        shown.forEach { cc ->
+            Text(
+                "${cc.caseNumber} — ${cc.owner}",
+                fontSize = 12.sp, fontWeight = FontWeight.Bold
+            )
+            cc.changes.forEach { ch ->
+                Text("  • $ch", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        if (!showAll && diff.changedCases.size > 10) {
+            Text("…و ${diff.changedCases.size - 10} مورد دیگر", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+    val addedShown = if (showAll) diff.addedCases else diff.addedCases.take(5)
+    if (addedShown.isNotEmpty()) {
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            "پرونده‌های جدید: " + addedShown.joinToString("، ") { it.caseNumber },
+            fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+    val removedShown = if (showAll) diff.removedCases else diff.removedCases.take(5)
+    if (removedShown.isNotEmpty()) {
+        Text(
+            "پرونده‌های حذف‌شده: " + removedShown.joinToString("، ") { it.caseNumber },
+            fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
