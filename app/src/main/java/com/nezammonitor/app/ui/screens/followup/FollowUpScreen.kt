@@ -7,6 +7,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material3.*
@@ -21,6 +23,8 @@ import com.nezammonitor.app.data.FollowUpEditEntity
 import com.nezammonitor.app.ui.components.NezamCard
 import com.nezammonitor.app.ui.components.NezamEmptyState
 import com.nezammonitor.app.ui.components.NezamSearchField
+import com.nezammonitor.app.ui.screens.reportgen.buildingGroupLetter
+import com.nezammonitor.app.ui.screens.reportgen.toPersianDigitsStr
 import com.nezammonitor.app.viewmodel.MainViewModel
 
 private enum class SortField { CASE_NUMBER, OWNER, ADDRESS, REPORT_COUNT }
@@ -47,7 +51,7 @@ private fun dialPhone(context: android.content.Context, phone: String) {
     } catch (_: Exception) {}
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun FollowUpScreen(viewModel: MainViewModel) {
     val cases by viewModel.cases.collectAsState()
@@ -60,7 +64,18 @@ fun FollowUpScreen(viewModel: MainViewModel) {
     var showSortMenu by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
-    val items = remember(cases, edits, reports, specs, searchQuery, sortField, sortDirection) {
+    // Advanced filters (selection-based, from the filter dialog; every value
+    // comes from the loaded cases/specs, never typed or hardcoded)
+    var filterHasDescription by remember { mutableStateOf<Boolean?>(null) }
+    var filterHasEdit by remember { mutableStateOf<Boolean?>(null) }
+    var filterGroup by remember { mutableStateOf<String?>(null) }
+    var filterOwner by remember { mutableStateOf<String?>(null) }
+    var filterHasReports by remember { mutableStateOf<Boolean?>(null) }
+    var showFilterDialog by remember { mutableStateOf(false) }
+
+    // Base items: one per case, before search/sort/filter. The group comes
+    // from the case's own specification (letter only: الف/ب/ج/د).
+    val baseItems = remember(cases, edits, reports, specs) {
         cases.map { case ->
             val edit = edits.find { it.caseNumber == case.caseNumber }
             val reportCount = reports.count { it.caseNumber == case.caseNumber }
@@ -75,15 +90,49 @@ fun FollowUpScreen(viewModel: MainViewModel) {
                 mobile = edit?.ownerMobileEdit?.ifBlank { case.ownerMobile } ?: case.ownerMobile,
                 address = address,
                 description = edit?.description ?: "",
-                reportCount = reportCount
+                reportCount = reportCount,
+                group = spec?.buildingGroup?.let { buildingGroupLetter(it) } ?: "",
+                hasEdit = edit != null && listOf(
+                    edit.description, edit.caseNumberEdit, edit.ownerEdit,
+                    edit.addressEdit, edit.ownerMobileEdit
+                ).any { it.isNotBlank() }
             )
-        }.filter { item ->
-            searchQuery.isBlank() ||
+        }
+    }
+
+    // Options built from the values actually in the loaded list.
+    val groupOptions = remember(baseItems) {
+        baseItems.map { it.group }.filter { it.isNotBlank() }.distinct().sorted()
+    }
+    val ownerOptions = remember(baseItems) {
+        baseItems.map { toPersianChars(it.owner) }.filter { it.isNotBlank() }.distinct().sorted()
+    }
+
+    val activeFilterCount = listOf(
+        filterHasDescription != null, filterHasEdit != null, filterGroup != null,
+        filterOwner != null, filterHasReports != null
+    ).count { it }
+    fun clearAllFilters() {
+        filterHasDescription = null
+        filterHasEdit = null
+        filterGroup = null
+        filterOwner = null
+        filterHasReports = null
+    }
+
+    val items = remember(baseItems, searchQuery, sortField, sortDirection, filterHasDescription, filterHasEdit, filterGroup, filterOwner, filterHasReports) {
+        baseItems.filter { item ->
+            (filterHasDescription == null || item.description.isNotBlank() == filterHasDescription) &&
+            (filterHasEdit == null || item.hasEdit == filterHasEdit) &&
+            (filterGroup == null || item.group == filterGroup) &&
+            (filterOwner == null || toPersianChars(item.owner) == filterOwner) &&
+            (filterHasReports == null || (item.reportCount > 0) == filterHasReports) &&
+            (searchQuery.isBlank() ||
             item.caseNumber.contains(searchQuery, true) ||
             item.owner.contains(searchQuery, true) ||
             item.mobile.contains(searchQuery, true) ||
             item.description.contains(searchQuery, true) ||
-            item.address.contains(searchQuery, true)
+            item.address.contains(searchQuery, true))
         }.let { result ->
             when (sortField) {
                 SortField.CASE_NUMBER -> result.sortedBy { it.caseNumber }
@@ -94,6 +143,27 @@ fun FollowUpScreen(viewModel: MainViewModel) {
         }
     }
 
+    if (showFilterDialog) {
+        FollowUpFilterDialog(
+            hasDescription = filterHasDescription,
+            hasEdit = filterHasEdit,
+            group = filterGroup,
+            owner = filterOwner,
+            hasReports = filterHasReports,
+            groupOptions = groupOptions,
+            ownerOptions = ownerOptions,
+            onApply = { hasDescription, hasEdit, group, owner, hasReports ->
+                filterHasDescription = hasDescription
+                filterHasEdit = hasEdit
+                filterGroup = group
+                filterOwner = owner
+                filterHasReports = hasReports
+                showFilterDialog = false
+            },
+            onDismiss = { showFilterDialog = false }
+        )
+    }
+
     Column(modifier = Modifier.fillMaxSize()) {
         NezamSearchField(
             value = searchQuery,
@@ -101,6 +171,43 @@ fun FollowUpScreen(viewModel: MainViewModel) {
             modifier = Modifier.fillMaxWidth().padding(16.dp),
             label = "جستجوی پرونده / مالک / توضیحات..."
         )
+
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Button(onClick = { showFilterDialog = true }, modifier = Modifier.weight(1f)) {
+                Text(
+                    if (activeFilterCount > 0) "🔍 فیلتر پیشرفته (${toPersianDigitsStr(activeFilterCount.toString())})"
+                    else "🔍 فیلتر پیشرفته",
+                    fontSize = 13.sp
+                )
+            }
+            if (activeFilterCount > 0) {
+                OutlinedButton(onClick = { clearAllFilters() }) {
+                    Text("پاک کردن", fontSize = 13.sp)
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // Active filters, each removable on its own
+        if (activeFilterCount > 0) {
+            FlowRow(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                if (filterHasDescription != null) FilterChip(selected = true, onClick = { filterHasDescription = null }, label = { Text(if (filterHasDescription == true) "دارای توضیحات ✕" else "بدون توضیحات ✕", fontSize = 11.sp) })
+                if (filterHasEdit != null) FilterChip(selected = true, onClick = { filterHasEdit = null }, label = { Text(if (filterHasEdit == true) "ویرایش‌شده ✕" else "بدون ویرایش ✕", fontSize = 11.sp) })
+                if (filterGroup != null) FilterChip(selected = true, onClick = { filterGroup = null }, label = { Text("گروه ${filterGroup} ✕", fontSize = 11.sp) })
+                if (filterOwner != null) FilterChip(selected = true, onClick = { filterOwner = null }, label = { Text("مالک: ${filterOwner} ✕", fontSize = 11.sp) })
+                if (filterHasReports != null) FilterChip(selected = true, onClick = { filterHasReports = null }, label = { Text(if (filterHasReports == true) "دارای گزارش ✕" else "بدون گزارش ✕", fontSize = 11.sp) })
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+        }
 
         // Sort controls
         Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -147,7 +254,9 @@ fun FollowUpScreen(viewModel: MainViewModel) {
                     NezamEmptyState(
                         emoji = "📌",
                         title = if (cases.isEmpty()) "هنوز پرونده‌ای برای پیگیری نیست" else "موردی یافت نشد",
-                        subtitle = if (cases.isEmpty()) "فایل .nzmdata را وارد کنید یا بروزرسانی کنید" else "جستجو یا مرتب‌سازی را تغییر دهید"
+                        subtitle = if (cases.isEmpty()) "فایل .nzmdata را وارد کنید یا بروزرسانی کنید"
+                            else if (searchQuery.isNotBlank() || activeFilterCount > 0) "جستجو یا فیلتر را تغییر دهید"
+                            else "جستجو یا مرتب‌سازی را تغییر دهید"
                     )
                 }
             }
@@ -211,5 +320,171 @@ fun FollowUpScreen(viewModel: MainViewModel) {
 
 data class FollowUpDisplayItem(
     val caseNumber: String, val originalCaseNumber: String, val owner: String,
-    val mobile: String, val address: String, val description: String, val reportCount: Int
+    val mobile: String, val address: String, val description: String, val reportCount: Int,
+    /** Building group letter (الف/ب/ج/د) from the case's own specification. */
+    val group: String,
+    /** True when a follow-up edit exists with at least one non-blank field. */
+    val hasEdit: Boolean
 )
+
+/** Advanced filter dialog for the follow-up menu (same pattern as the reports
+ *  and cases filters): every filter is a selection from the values actually
+ *  in the list, never typed. Draft state is applied only on «اعمال فیلتر». */
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@Composable
+private fun FollowUpFilterDialog(
+    hasDescription: Boolean?,
+    hasEdit: Boolean?,
+    group: String?,
+    owner: String?,
+    hasReports: Boolean?,
+    groupOptions: List<String>,
+    ownerOptions: List<String>,
+    onApply: (hasDescription: Boolean?, hasEdit: Boolean?, group: String?, owner: String?, hasReports: Boolean?) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var draftHasDescription by remember { mutableStateOf(hasDescription) }
+    var draftHasEdit by remember { mutableStateOf(hasEdit) }
+    var draftGroup by remember { mutableStateOf(group) }
+    var draftOwner by remember { mutableStateOf(owner) }
+    var draftHasReports by remember { mutableStateOf(hasReports) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("فیلتر پیشرفته", fontSize = 16.sp, fontWeight = FontWeight.Bold) },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text("توضیحات", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    FilterChip(
+                        selected = draftHasDescription == null,
+                        onClick = { draftHasDescription = null },
+                        label = { Text("همه", fontSize = 12.sp) }
+                    )
+                    FilterChip(
+                        selected = draftHasDescription == true,
+                        onClick = { draftHasDescription = true },
+                        label = { Text("دارای توضیحات", fontSize = 12.sp) }
+                    )
+                    FilterChip(
+                        selected = draftHasDescription == false,
+                        onClick = { draftHasDescription = false },
+                        label = { Text("بدون توضیحات", fontSize = 12.sp) }
+                    )
+                }
+                Text("ویرایش", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    FilterChip(
+                        selected = draftHasEdit == null,
+                        onClick = { draftHasEdit = null },
+                        label = { Text("همه", fontSize = 12.sp) }
+                    )
+                    FilterChip(
+                        selected = draftHasEdit == true,
+                        onClick = { draftHasEdit = true },
+                        label = { Text("ویرایش‌شده", fontSize = 12.sp) }
+                    )
+                    FilterChip(
+                        selected = draftHasEdit == false,
+                        onClick = { draftHasEdit = false },
+                        label = { Text("بدون ویرایش", fontSize = 12.sp) }
+                    )
+                }
+                Text("گزارش", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    FilterChip(
+                        selected = draftHasReports == null,
+                        onClick = { draftHasReports = null },
+                        label = { Text("همه", fontSize = 12.sp) }
+                    )
+                    FilterChip(
+                        selected = draftHasReports == true,
+                        onClick = { draftHasReports = true },
+                        label = { Text("دارای گزارش", fontSize = 12.sp) }
+                    )
+                    FilterChip(
+                        selected = draftHasReports == false,
+                        onClick = { draftHasReports = false },
+                        label = { Text("بدون گزارش", fontSize = 12.sp) }
+                    )
+                }
+                Text("گروه ساختمانی", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    FilterChip(
+                        selected = draftGroup == null,
+                        onClick = { draftGroup = null },
+                        label = { Text("همه", fontSize = 12.sp) }
+                    )
+                    groupOptions.forEach { g ->
+                        FilterChip(
+                            selected = draftGroup == g,
+                            onClick = { draftGroup = g },
+                            label = { Text("گروه $g", fontSize = 12.sp) }
+                        )
+                    }
+                }
+                FollowUpFilterDropdown(label = "مالک", value = draftOwner, options = ownerOptions, onSelect = { draftOwner = it })
+                OutlinedButton(
+                    onClick = {
+                        draftHasDescription = null
+                        draftHasEdit = null
+                        draftGroup = null
+                        draftOwner = null
+                        draftHasReports = null
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("پاک کردن همهٔ فیلترها", fontSize = 13.sp)
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                onApply(draftHasDescription, draftHasEdit, draftGroup, draftOwner, draftHasReports)
+            }) { Text("اعمال فیلتر") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("انصراف") }
+        }
+    )
+}
+
+/** A selection dropdown for the follow-up filter (same pattern as the reports
+ *  filter): "همه" plus the values actually in the list. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun FollowUpFilterDropdown(
+    label: String,
+    value: String?,
+    options: List<String>,
+    onSelect: (String?) -> Unit,
+    displayValue: (String) -> String = { toPersianChars(it) }
+) {
+    var expanded by remember { mutableStateOf(false) }
+    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
+        OutlinedTextField(
+            value = value?.let { displayValue(it) } ?: "همه",
+            onValueChange = {},
+            readOnly = true,
+            label = { Text(label, fontSize = 12.sp) },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            modifier = Modifier.menuAnchor().fillMaxWidth(),
+            singleLine = true
+        )
+        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenuItem(
+                text = { Text("همه", fontSize = 13.sp) },
+                onClick = { onSelect(null); expanded = false }
+            )
+            options.forEach { opt ->
+                DropdownMenuItem(
+                    text = { Text(displayValue(opt), fontSize = 13.sp) },
+                    onClick = { onSelect(opt); expanded = false }
+                )
+            }
+        }
+    }
+}

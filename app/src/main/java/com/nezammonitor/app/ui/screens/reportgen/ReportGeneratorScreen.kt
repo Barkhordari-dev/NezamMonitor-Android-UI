@@ -110,9 +110,75 @@ fun ReportGeneratorScreen(viewModel: MainViewModel, initialTab: Int = 0, onBack:
     // PDF size limit (0 = no limit, full quality). Saved in nezam_settings.
     var pdfMaxBytes by remember { mutableStateOf(loadPdfMaxBytes(context)) }
 
-    val templatesDir = File("/storage/emulated/0/NezamMonitor/templates")
-    val outputsDir = File("/storage/emulated/0/NezamMonitor/outputs")
+    // Paths (changeable in the "مسیرها" section below) and the signed-report
+    // switch: when on, the signed-templates folder replaces the normal one
+    // for both Word and PDF generation.
+    var reportPaths by remember { mutableStateOf(loadReportPaths(context)) }
+    var signedReport by remember { mutableStateOf(loadSignedReport(context)) }
+    val templatesDir = File(if (signedReport) reportPaths.signedTemplatesPath else reportPaths.templatesPath)
+    val outputsDir = File(reportPaths.outputsPath)
     val templatesExist = templatesDir.exists() && (templatesDir.listFiles()?.any { it.name.endsWith(".docx") } == true)
+    // Path edit dialog: which pref key is being edited (null = closed).
+    var pathDialogKey by remember { mutableStateOf<String?>(null) }
+    // Advanced filter for the case list (same pattern as the history
+    // filter): selection-based, from the values actually in the list.
+    var filterGroup by remember { mutableStateOf<String?>(null) }
+    var filterDiscipline by remember { mutableStateOf<String?>(null) }
+    var filterOwner by remember { mutableStateOf<String?>(null) }
+    var filterOffice by remember { mutableStateOf<String?>(null) }
+    var filterState by remember { mutableStateOf<String?>(null) }
+    var filterWorkType by remember { mutableStateOf<String?>(null) }
+    var showGeneratorFilterDialog by remember { mutableStateOf(false) }
+    // When stage 4 is selected, show only the rows that actually have a
+    // 4th stage, so the user chooses among those.
+    val visibleCases = remember(selectedStage, cases, specs, engineers, fees, reports, scheduleConfig) {
+        if (selectedStage == 4) cases.filter { c ->
+            val spec = specs.firstOrNull { it.caseNumber == c.caseNumber }
+            val (g, d) = resolveCaseGroupDiscipline(c, spec, engineers, fees, reports)
+            scheduleConfig.stageCount(g, d) >= 4
+        } else cases
+    }
+    // Filter options, from the values actually in the visible list.
+    val groupOptions = remember(visibleCases, specs, engineers, fees, reports) {
+        visibleCases.map { c ->
+            val spec = specs.firstOrNull { it.caseNumber == c.caseNumber }
+            buildingGroupLetter(resolveCaseGroupDiscipline(c, spec, engineers, fees, reports).first)
+        }.filter { it.isNotBlank() }.distinct().sorted()
+    }
+    val disciplineOptions = remember(visibleCases, specs, engineers, fees, reports) {
+        visibleCases.map { c ->
+            val spec = specs.firstOrNull { it.caseNumber == c.caseNumber }
+            toPersianChars(resolveCaseGroupDiscipline(c, spec, engineers, fees, reports).second)
+        }.filter { it.isNotBlank() }.distinct().sorted()
+    }
+    val ownerOptions = remember(visibleCases) { visibleCases.map { it.owner }.filter { it.isNotBlank() }.distinct().sorted() }
+    val officeOptions = remember(visibleCases) { visibleCases.map { it.office }.filter { it.isNotBlank() }.distinct().sorted() }
+    val stateOptions = remember(visibleCases) { visibleCases.map { it.stateTitle }.filter { it.isNotBlank() }.distinct().sorted() }
+    val workTypeOptions = remember(visibleCases) { visibleCases.map { it.workType }.filter { it.isNotBlank() }.distinct().sorted() }
+    val filteredCases = remember(visibleCases, filterGroup, filterDiscipline, filterOwner, filterOffice, filterState, filterWorkType) {
+        visibleCases.filter { c ->
+            val spec = specs.firstOrNull { it.caseNumber == c.caseNumber }
+            val (g, d) = resolveCaseGroupDiscipline(c, spec, engineers, fees, reports)
+            (filterGroup == null || buildingGroupLetter(g) == filterGroup) &&
+                (filterDiscipline == null || toPersianChars(d) == toPersianChars(filterDiscipline ?: "")) &&
+                (filterOwner == null || c.owner == filterOwner) &&
+                (filterOffice == null || c.office == filterOffice) &&
+                (filterState == null || c.stateTitle == filterState) &&
+                (filterWorkType == null || c.workType == filterWorkType)
+        }
+    }
+    val activeGeneratorFilterCount = listOf(
+        filterGroup != null, filterDiscipline != null, filterOwner != null,
+        filterOffice != null, filterState != null, filterWorkType != null
+    ).count { it }
+    fun clearGeneratorFilters() {
+        filterGroup = null
+        filterDiscipline = null
+        filterOwner = null
+        filterOffice = null
+        filterState = null
+        filterWorkType = null
+    }
 
     fun doGenerate() {
         if (selectedStage == 0 || selectedCases.isEmpty()) {
@@ -166,13 +232,12 @@ fun ReportGeneratorScreen(viewModel: MainViewModel, initialTab: Int = 0, onBack:
                         context = context,
                         cases = cases.filter { it.caseNumber in selectedCases },
                         engineers = engineers,
-                        fees = fees,
                         specs = specs,
-                        reports = reports,
-                        localHistory = localHistory,
                         stage = selectedStage,
-                        userName = userName,
+                        useLtr = useLtr,
+                        templatesDir = templatesDir,
                         outputsDir = outputsDir,
+                        userName = userName,
                         maxBytes = pdfMaxBytes
                     )
                 }
@@ -199,6 +264,64 @@ fun ReportGeneratorScreen(viewModel: MainViewModel, initialTab: Int = 0, onBack:
         )
     }
 
+    // Path edit dialog (one per path key in the "مسیرها" section).
+    if (pathDialogKey != null) {
+        val key = pathDialogKey!!
+        val current = when (key) {
+            "signed_templates_path" -> reportPaths.signedTemplatesPath
+            "outputs_path" -> reportPaths.outputsPath
+            else -> reportPaths.templatesPath
+        }
+        val title = when (key) {
+            "signed_templates_path" -> "مسیر تمپلیت‌های امضاشده"
+            "outputs_path" -> "مسیر خروجی"
+            else -> "مسیر تمپلیت‌ها"
+        }
+        PathEditDialog(
+            title = title,
+            currentPath = current,
+            defaultPath = defaultReportPath(key),
+            onSave = { value ->
+                saveReportPath(context, key, value)
+                reportPaths = when (key) {
+                    "signed_templates_path" -> reportPaths.copy(signedTemplatesPath = value)
+                    "outputs_path" -> reportPaths.copy(outputsPath = value)
+                    else -> reportPaths.copy(templatesPath = value)
+                }
+                pathDialogKey = null
+            },
+            onDismiss = { pathDialogKey = null }
+        )
+    }
+
+    // Generator advanced filter dialog.
+    if (showGeneratorFilterDialog) {
+        GeneratorFilterDialog(
+            group = filterGroup,
+            discipline = filterDiscipline,
+            owner = filterOwner,
+            office = filterOffice,
+            state = filterState,
+            workType = filterWorkType,
+            groupOptions = groupOptions,
+            disciplineOptions = disciplineOptions,
+            ownerOptions = ownerOptions,
+            officeOptions = officeOptions,
+            stateOptions = stateOptions,
+            workTypeOptions = workTypeOptions,
+            onApply = { g, d, o, of, s, w ->
+                filterGroup = g
+                filterDiscipline = d
+                filterOwner = o
+                filterOffice = of
+                filterState = s
+                filterWorkType = w
+                showGeneratorFilterDialog = false
+            },
+            onDismiss = { showGeneratorFilterDialog = false }
+        )
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(title = { Text("تولید گزارش") }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "بازگشت") } })
@@ -211,6 +334,18 @@ fun ReportGeneratorScreen(viewModel: MainViewModel, initialTab: Int = 0, onBack:
             }
             if (activeTab == 0) {
         LazyColumn(modifier = Modifier.weight(1f).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            // Signed report: when on, Word and PDF generation use the
+            // signed-templates folder instead of the normal one.
+            item {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(checked = signedReport, onCheckedChange = { signedReport = it; saveSignedReport(context, it) })
+                    Column {
+                        Text("تولید گزارش امضا شده", fontSize = 14.sp)
+                        Text("از پوشهٔ تمپلیت‌های امضاشده استفاده می‌شود", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+
             // Generate button at top
             item {
                 Button(
@@ -247,17 +382,23 @@ fun ReportGeneratorScreen(viewModel: MainViewModel, initialTab: Int = 0, onBack:
                 }
             }
 
-            // PDF export: same report data as the Word file, rendered as a
-            // vector PDF (no template needed, small file, high quality).
+            // PDF export: the SAME Word report the Word button builds
+            // (same template, same placeholders), converted to PDF — so
+            // the PDF looks like the template. Needs the templates, and
+            // the Word file is kept next to it in the same folder.
             item {
                 OutlinedButton(
                     onClick = { doGeneratePdf() },
                     modifier = Modifier.fillMaxWidth().height(50.dp),
-                    enabled = !isGenerating && selectedStage > 0 && selectedCases.isNotEmpty()
+                    enabled = !isGenerating && selectedStage > 0 && selectedCases.isNotEmpty() && templatesExist
                 ) {
                     if (isGenerating) { CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.primary); Spacer(modifier = Modifier.width(8.dp)) }
                     Text("📄 تولید گزارش PDF", fontSize = 15.sp)
                 }
+            }
+
+            item {
+                Text("فایل PDF از روی فایل Word ساخته می‌شود و به تمپلیت مرحله نیاز دارد؛ فایل Word هم در همان پوشه ساخته می‌شود.", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
 
             // PDF size limit: the app shrinks the text (fewer pages, smaller
@@ -326,26 +467,76 @@ fun ReportGeneratorScreen(viewModel: MainViewModel, initialTab: Int = 0, onBack:
 
             item { Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(checked = useLtr, onCheckedChange = { useLtr = it }); Text("تولید چپ‌چین (LTR)", fontSize = 14.sp) } }
 
+            // Paths: each can be changed (typed or from suggestions) or
+            // reset to its default. The lines always show the current paths.
             item {
-                Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
-                    Column(modifier = Modifier.padding(12.dp)) {
-                        Text("📂 تمپلیت‌ها: ${templatesDir.absolutePath}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text("📂 خروجی: ${outputsDir.absolutePath}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("مسیرها", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    ReportPathRow(
+                        label = "📂 تمپلیت‌ها",
+                        path = reportPaths.templatesPath,
+                        isDefault = reportPaths.templatesPath == DEFAULT_TEMPLATES_PATH,
+                        onChange = { pathDialogKey = "templates_path" },
+                        onReset = {
+                            saveReportPath(context, "templates_path", DEFAULT_TEMPLATES_PATH)
+                            reportPaths = reportPaths.copy(templatesPath = DEFAULT_TEMPLATES_PATH)
+                        }
+                    )
+                    ReportPathRow(
+                        label = "📂 تمپلیت‌های امضاشده",
+                        path = reportPaths.signedTemplatesPath,
+                        isDefault = reportPaths.signedTemplatesPath == DEFAULT_SIGNED_TEMPLATES_PATH,
+                        onChange = { pathDialogKey = "signed_templates_path" },
+                        onReset = {
+                            saveReportPath(context, "signed_templates_path", DEFAULT_SIGNED_TEMPLATES_PATH)
+                            reportPaths = reportPaths.copy(signedTemplatesPath = DEFAULT_SIGNED_TEMPLATES_PATH)
+                        }
+                    )
+                    ReportPathRow(
+                        label = "📂 خروجی",
+                        path = reportPaths.outputsPath,
+                        isDefault = reportPaths.outputsPath == DEFAULT_OUTPUTS_PATH,
+                        onChange = { pathDialogKey = "outputs_path" },
+                        onReset = {
+                            saveReportPath(context, "outputs_path", DEFAULT_OUTPUTS_PATH)
+                            reportPaths = reportPaths.copy(outputsPath = DEFAULT_OUTPUTS_PATH)
+                        }
+                    )
+                }
+            }
+
+            // Advanced filter for the case list (selection-based, like the
+            // history filter). It narrows the same list alongside the
+            // stage-4 rule above.
+            item {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Button(onClick = { showGeneratorFilterDialog = true }, modifier = Modifier.weight(1f)) {
+                        Text(if (activeGeneratorFilterCount > 0) "🔍 فیلتر پیشرفته (${toPersianDigits(activeGeneratorFilterCount.toString())})" else "🔍 فیلتر پیشرفته", fontSize = 13.sp)
+                    }
+                    if (activeGeneratorFilterCount > 0) {
+                        OutlinedButton(onClick = { clearGeneratorFilters() }) {
+                            Text("پاک کردن", fontSize = 13.sp)
+                        }
                     }
                 }
             }
 
-            // When stage 4 is selected, show only the rows that actually have a
-            // 4th stage, so the user chooses among those.
-            val visibleCases = if (selectedStage == 4) cases.filter { c ->
-                val spec = specs.firstOrNull { it.caseNumber == c.caseNumber }
-                val (g, d) = resolveCaseGroupDiscipline(c, spec, engineers, fees, reports)
-                scheduleConfig.stageCount(g, d) >= 4
-            } else cases
+            if (activeGeneratorFilterCount > 0) {
+                item {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        if (filterGroup != null) FilterChip(selected = true, onClick = { filterGroup = null }, label = { Text("گروه $filterGroup ✕", fontSize = 11.sp) })
+                        if (filterDiscipline != null) FilterChip(selected = true, onClick = { filterDiscipline = null }, label = { Text("رشته: ${toPersianChars(filterDiscipline ?: "")} ✕", fontSize = 11.sp) })
+                        if (filterOwner != null) FilterChip(selected = true, onClick = { filterOwner = null }, label = { Text("مالک: ${toPersianChars(filterOwner ?: "")} ✕", fontSize = 11.sp) })
+                        if (filterOffice != null) FilterChip(selected = true, onClick = { filterOffice = null }, label = { Text("دفتر: ${toPersianChars(filterOffice ?: "")} ✕", fontSize = 11.sp) })
+                        if (filterState != null) FilterChip(selected = true, onClick = { filterState = null }, label = { Text("وضعیت: ${toPersianChars(filterState ?: "")} ✕", fontSize = 11.sp) })
+                        if (filterWorkType != null) FilterChip(selected = true, onClick = { filterWorkType = null }, label = { Text("نوع کار: ${toPersianChars(filterWorkType ?: "")} ✕", fontSize = 11.sp) })
+                    }
+                }
+            }
 
-            item { Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(checked = selectAll, onCheckedChange = { selectAll = it; selectedCases = if (it) visibleCases.filter { c -> val spec = specs.firstOrNull { it.caseNumber == c.caseNumber }; val (g, d) = resolveCaseGroupDiscipline(c, spec, engineers, fees, reports); selectedStage == 0 || selectedStage <= scheduleConfig.stageCount(g, d) }.map { c -> c.caseNumber }.toSet() else emptySet() }); Text("انتخاب همه (${visibleCases.size})", fontSize = 14.sp) } }
+            item { Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(checked = selectAll, onCheckedChange = { selectAll = it; selectedCases = if (it) filteredCases.filter { c -> val spec = specs.firstOrNull { it.caseNumber == c.caseNumber }; val (g, d) = resolveCaseGroupDiscipline(c, spec, engineers, fees, reports); selectedStage == 0 || selectedStage <= scheduleConfig.stageCount(g, d) }.map { c -> c.caseNumber }.toSet() else emptySet() }); Text("انتخاب همه (${filteredCases.size})", fontSize = 14.sp) } }
 
-            items(visibleCases) { case ->
+            items(filteredCases) { case ->
                 val spec = specs.firstOrNull { it.caseNumber == case.caseNumber }
                 // The case row itself often lacks group/discipline/permit (the cases
                 // endpoint leaves mas_title/bg_name blank): fall back to the
@@ -502,38 +693,85 @@ private fun generateReports(context: Context, cases: List<CaseEntity>, allCases:
     var count = 0
 
     for ((index, case) in cases.withIndex()) {
-        val rowNum = String.format("%02d", index + 1)
-        val reversedCase = reverseCaseNumber(case.caseNumber)
-        val safeOwner = case.owner.replace(Regex("[/\\\\:*?\"<>|]"), "_")
-        val folderNum = toPersianDigits(rowNum)
-        val folderCase = reversedCase
-        val folderName = "$folderNum - $safeOwner - $folderCase"
-        val folder = File(outputsDir, folderName)
-        folder.mkdirs()
-
-        val caseEngineers = engineers.filter { it.caseNumber == case.caseNumber }
-        val spec = specs.firstOrNull { it.caseNumber == case.caseNumber }
-
-        val reportDate = if (useLtr) englishDate else persianDate
-        val ltrSuffix = if (useLtr) " - LTR" else ""
-        val fileName = "گزارش مرحله $stageName $safeOwner - $reportDate$ltrSuffix.docx"
-        val outputFile = File(folder, fileName)
-
         try {
-            templateFile.copyTo(outputFile, overwrite = true)
-            replacePlaceholders(outputFile, case, spec, caseEngineers, persianDate, useLtr, userName)
+            val outputFile = generateSingleWordReport(
+                context = context, case = case, index = index,
+                engineers = engineers, specs = specs, stage = stage,
+                useLtr = useLtr, templateFile = templateFile,
+                outputsDir = outputsDir, userName = userName,
+                persianDate = persianDate, timeNow = timeNow, englishDate = englishDate
+            )
             files.add(outputFile)
             count++
-
-            // Save to history
-            saveReportHistory(context, listOf(GeneratedReportRecord(
-                caseNumber = case.caseNumber, owner = case.owner, stage = stage,
-                createdAt = persianDate, createdTime = timeNow, filePath = outputFile.absolutePath,
-                folderPath = folder.absolutePath, fileExists = true
-            )))
         } catch (e: Exception) { return GenerateResult(files, "❌ خطا: ${case.owner}: ${e.message}") }
     }
     return GenerateResult(files, "✅ $count گزارش مرحله $stageName تولید شد\n📁 ${outputsDir.absolutePath}")
+}
+
+/** Builds one case's Word report from the template — the same file the
+ *  Word button produces — and records it in the generation history.
+ *  Shared by the Word button, the PDF export (which converts this file)
+ *  and print-regeneration. Throws on failure. */
+private fun generateSingleWordReport(
+    context: Context,
+    case: CaseEntity,
+    index: Int,
+    engineers: List<EngineerEntity>,
+    specs: List<SpecificationEntity>,
+    stage: Int,
+    useLtr: Boolean,
+    templateFile: File,
+    outputsDir: File,
+    userName: String,
+    persianDate: String,
+    timeNow: String,
+    englishDate: String
+): File {
+    val stageName = stageNameForNumber(stage)
+    val rowNum = String.format("%02d", index + 1)
+    val reversedCase = reverseCaseNumber(case.caseNumber)
+    val safeOwner = case.owner.replace(Regex("[/\\\\:*?\"<>|]"), "_")
+    val folderNum = toPersianDigits(rowNum)
+    val folderName = "$folderNum - $safeOwner - $reversedCase"
+    val folder = File(outputsDir, folderName)
+    folder.mkdirs()
+    val caseEngineers = engineers.filter { it.caseNumber == case.caseNumber }
+    val spec = specs.firstOrNull { it.caseNumber == case.caseNumber }
+    val reportDate = if (useLtr) englishDate else persianDate
+    val ltrSuffix = if (useLtr) " - LTR" else ""
+    val fileName = "گزارش مرحله $stageName $safeOwner - $reportDate$ltrSuffix.docx"
+    val outputFile = File(folder, fileName)
+    if (!buildWordReportToFile(templateFile, case, spec, caseEngineers, persianDate, useLtr, userName, outputFile)) {
+        throw IllegalStateException("خطا در ساخت فایل Word")
+    }
+    saveReportHistory(context, listOf(GeneratedReportRecord(
+        caseNumber = case.caseNumber, owner = case.owner, stage = stage,
+        createdAt = persianDate, createdTime = timeNow, filePath = outputFile.absolutePath,
+        folderPath = folder.absolutePath, fileExists = true
+    )))
+    return outputFile
+}
+
+/** Copies the template to [outputFile] and fills its placeholders.
+ *  Returns false when the copy fails (placeholder replacement itself
+ *  never throws — it swallows its own errors, as before). */
+private fun buildWordReportToFile(
+    templateFile: File,
+    case: CaseEntity,
+    spec: SpecificationEntity?,
+    caseEngineers: List<EngineerEntity>,
+    persianDate: String,
+    useLtr: Boolean,
+    userName: String,
+    outputFile: File
+): Boolean {
+    return try {
+        templateFile.copyTo(outputFile, overwrite = true)
+        replacePlaceholders(outputFile, case, spec, caseEngineers, persianDate, useLtr, userName)
+        true
+    } catch (_: Exception) {
+        false
+    }
 }
 
 /** Generation history per stage for one case: local file (with generation
@@ -563,8 +801,8 @@ private fun historyByStageFor(
 
 /** The PDF sections for one case's report: case details, the supervisor's
  *  name, the engineers, and the stage schedule with each stage's status
- *  (generated/registered/remaining). Shared by the PDF export and by
- *  printing a local history report. */
+ *  (generated/registered/remaining). Used only by the print fallback when
+ *  no template exists — the PDF export now converts the Word file. */
 private fun buildReportPdfSections(
     case: CaseEntity,
     spec: SpecificationEntity?,
@@ -613,16 +851,17 @@ private fun buildReportPdfSections(
     return sections
 }
 
-/** Generate a PDF report for each selected case (same data as the Word
- *  report, rendered as vector text on A4 pages — sharp at any zoom and
- *  tens of kilobytes, far under the 2 MB limit). No Word template is
- *  needed. The PDF goes into the same per-case folder as its Word file
- *  and is recorded in the generation history (fileType "pdf") so it
- *  shows in the history tab next to the Word file.
+/** Generate a PDF report for each selected case — by building the SAME Word
+ *  report the Word button produces (same template, same placeholders) and
+ *  converting that .docx to PDF, so the PDF looks exactly like the
+ *  template. The PDF goes into the same per-case folder as its Word file
+ *  and is recorded in the generation history (fileType "pdf") so it shows
+ *  in the history tab next to the Word file. The Word file is kept too:
+ *  pressing PDF produces both files.
  *
  *  [maxBytes] is the per-file size limit (0 = no limit, full quality).
- *  When a limit is set and a file comes out over it, the report is
- *  regenerated with a smaller font (fewer pages, smaller file) until it
+ *  When a limit is set and a file comes out over it, the .docx is
+ *  re-converted with a smaller font (fewer pages, smaller file) until it
  *  fits or the floor (0.6) is reached. With no limit the first,
  *  full-quality file is always kept — the output is never changed.
  *
@@ -633,70 +872,66 @@ private fun generateReportPdfs(
     context: Context,
     cases: List<CaseEntity>,
     engineers: List<EngineerEntity>,
-    fees: List<FeeEntity>,
     specs: List<SpecificationEntity>,
-    reports: List<ReportEntity>,
-    localHistory: List<GeneratedReportRecord>,
     stage: Int,
-    userName: String,
+    useLtr: Boolean,
+    templatesDir: File,
     outputsDir: File,
+    userName: String,
     maxBytes: Long = 0L
 ): GenerateResult {
     val files = mutableListOf<File>()
     val stageName = stageNameForNumber(stage)
-    val scheduleConfig = ScheduleConfig(context)
-    val today = todayJalali()
+    // The disciplines of the selected cases (from each case's own data,
+    // never hardcoded) pick the template, exactly like the Word button.
+    val disciplines = cases.map { c ->
+        c.discipline.ifBlank {
+            engineers.firstOrNull { it.caseNumber == c.caseNumber }?.discipline ?: ""
+        }
+    }.map { toPersianChars(it.trim()) }.filter { it.isNotBlank() }.distinct()
+    val templateFile = findTemplate(templatesDir, stageName, disciplines)
+        ?: return GenerateResult(emptyList(), "❌ فایل تمپلیت مرحله $stageName یافت نشد\nفایل‌ها را در ${templatesDir.absolutePath} قرار دهید")
     outputsDir.mkdirs()
-    val persianDate = toPersianDate(Date()).replace("/", "-")
-    val timeNow = SimpleDateFormat("HH:mm", Locale.US).format(Date())
+    val now = Date()
+    val persianDate = toPersianDate(now).replace("/", "-")
+    val timeNow = SimpleDateFormat("HH:mm", Locale.US).format(now)
+    val englishDate = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(now)
     var count = 0
     var totalBytes = 0L
     var reducedCount = 0
     var failedCount = 0
     for ((index, case) in cases.withIndex()) {
         try {
-            val rowNum = String.format("%02d", index + 1)
-            val reversedCase = reverseCaseNumber(case.caseNumber)
-            val safeOwner = case.owner.replace(Regex("[/\\\\:*?\"<>|]"), "_")
-            val folderNum = toPersianDigits(rowNum)
-            val folder = File(outputsDir, "$folderNum - $safeOwner - $reversedCase")
-            folder.mkdirs()
-            val spec = specs.firstOrNull { it.caseNumber == case.caseNumber }
-            val caseEngineers = engineers.filter { it.caseNumber == case.caseNumber }
-            val (resolvedGroupRaw, resolvedDiscipline) = resolveCaseGroupDiscipline(case, spec, engineers, fees, reports)
-            val stageCount = scheduleConfig.stageCount(resolvedGroupRaw, resolvedDiscipline)
-            val permitRaw = spec?.permitDate?.ifBlank { case.permitDate } ?: case.permitDate
-            val registeredStages = reports.filter { it.caseNumber == case.caseNumber && isOwnServerReport(it, userName) }
-                .mapNotNull { stageNumberFromTitle(it.stage).takeIf { n -> n > 0 } }.toSet()
-            val schedule = scheduleForCase(permitRaw, resolvedGroupRaw, stageCount, registeredStages, today, monthsOverride = scheduleConfig.months(resolvedGroupRaw))
-            val historyByStage = historyByStageFor(case, localHistory, reports, userName)
-            val sections = buildReportPdfSections(case, spec, caseEngineers, resolvedGroupRaw, resolvedDiscipline, schedule, historyByStage, today, userName)
-            val fileName = "گزارش مرحله $stageName $safeOwner - $persianDate.pdf"
-            val outputFile = File(folder, fileName)
-            var pdf: File? = null
+            // The Word file first — identical to the Word button's output —
+            // then the PDF is converted from it.
+            val docx = generateSingleWordReport(
+                context = context, case = case, index = index,
+                engineers = engineers, specs = specs, stage = stage,
+                useLtr = useLtr, templateFile = templateFile,
+                outputsDir = outputsDir, userName = userName,
+                persianDate = persianDate, timeNow = timeNow, englishDate = englishDate
+            )
+            val pdfFile = File(docx.parentFile, docx.nameWithoutExtension + ".pdf")
+            var pdfOk = false
             var usedScale = 1f
             for (scale in listOf(1f, 0.85f, 0.7f, 0.6f)) {
-                val attempt = generateReportPdf(
-                    title = "گزارش مرحله $stageName",
-                    subtitle = "مانیتورینگ نظام مهندسی",
-                    sections = sections,
-                    footer = "تاریخ گزارش: $persianDate",
-                    outputFile = outputFile,
-                    fontScale = scale
-                ) ?: break
-                pdf = attempt
-                usedScale = scale
-                if (maxBytes <= 0L || attempt.length() <= maxBytes) break
+                if (convertDocxToPdf(docx, pdfFile, scale)) {
+                    pdfOk = true
+                    usedScale = scale
+                    if (maxBytes <= 0L || pdfFile.length() <= maxBytes) break
+                } else {
+                    break
+                }
             }
-            if (pdf != null) {
-                files.add(pdf)
-                totalBytes += pdf.length()
+            if (pdfOk) {
+                files.add(pdfFile)
+                totalBytes += pdfFile.length()
                 count++
                 if (usedScale < 1f) reducedCount++
                 saveReportHistory(context, listOf(GeneratedReportRecord(
                     caseNumber = case.caseNumber, owner = case.owner, stage = stage,
-                    createdAt = persianDate, createdTime = timeNow, filePath = pdf.absolutePath,
-                    folderPath = folder.absolutePath, fileExists = true, fileType = "pdf"
+                    createdAt = persianDate, createdTime = timeNow, filePath = pdfFile.absolutePath,
+                    folderPath = docx.parentFile?.absolutePath ?: outputsDir.absolutePath, fileExists = true, fileType = "pdf"
                 )))
             } else {
                 failedCount++
@@ -709,6 +944,7 @@ private fun generateReportPdfs(
     val message = when {
         count > 0 -> buildString {
             append("✅ $count گزارش PDF مرحله $stageName تولید شد ($sizeText)\n📁 ${outputsDir.absolutePath}")
+            append("\nℹ️ فایل Word هر گزارش هم در همان پوشه ساخته شد.")
             if (reducedCount > 0) append("\nℹ️ اندازهٔ متن $reducedCount گزارش برای رعایت حد حجم کوچک‌تر شد.")
             if (failedCount > 0) append("\n⚠️ $failedCount گزارش تولید نشد.")
         }
@@ -1034,62 +1270,119 @@ private fun HistoryTab(
         }
     }
 
-    // Print a local (on-device) report: rebuild the report as a PDF from the
-    // case's own data (same sections as the PDF export) and send it to the
-    // printer. The .docx itself cannot be printed directly.
+    // Rebuild a missing Word file from the template into the print cache
+    // (no history entry: it is only an intermediate for the print).
+    // Tries the normal templates folder, then the signed one.
+    fun rebuildWordForPrint(record: GeneratedReportRecord): File? {
+        return try {
+            val case = cases.firstOrNull { it.caseNumber == record.caseNumber } ?: return null
+            val spec = specs.firstOrNull { it.caseNumber == record.caseNumber }
+            val caseEngineers = engineers.filter { it.caseNumber == record.caseNumber }
+            val disciplines = listOf(
+                case.discipline.ifBlank { caseEngineers.firstOrNull()?.discipline ?: "" }
+            ).map { toPersianChars(it.trim()) }.filter { it.isNotBlank() }
+            val stageName = stageNameForNumber(record.stage)
+            val paths = loadReportPaths(context)
+            val template = findTemplate(File(paths.templatesPath), stageName, disciplines)
+                ?: findTemplate(File(paths.signedTemplatesPath), stageName, disciplines)
+                ?: return null
+            val dir = File(context.cacheDir, "print").apply { mkdirs() }
+            val out = File(dir, "print-${record.caseNumber}.docx")
+            val persianDate = toPersianDate(Date()).replace("/", "-")
+            if (buildWordReportToFile(template, case, spec, caseEngineers, persianDate, false, userName, out)) out else null
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    // The old simple PDF (case data as a text list): only a fallback when
+    // no template exists, so printing never breaks.
+    fun buildSimplePrintPdf(record: GeneratedReportRecord): File? {
+        return try {
+            val case = cases.firstOrNull { it.caseNumber == record.caseNumber }
+            val spec = specs.firstOrNull { it.caseNumber == record.caseNumber }
+            val caseEngineers = engineers.filter { it.caseNumber == record.caseNumber }
+            val (group, discipline) = if (case != null) {
+                resolveCaseGroupDiscipline(case, spec, engineers, fees, serverReports)
+            } else "" to ""
+            val scheduleConfig = ScheduleConfig(context)
+            val today = todayJalali()
+            val stageCount = scheduleConfig.stageCount(group, discipline)
+            val permitRaw = spec?.permitDate?.ifBlank { case?.permitDate } ?: case?.permitDate ?: ""
+            val registeredStages = serverReports.filter { it.caseNumber == record.caseNumber && isOwnServerReport(it, userName) }
+                .mapNotNull { stageNumberFromTitle(it.stage).takeIf { n -> n > 0 } }.toSet()
+            val schedule = scheduleForCase(permitRaw, group, stageCount, registeredStages, today, monthsOverride = scheduleConfig.months(group))
+            val historyByStage = if (case != null) historyByStageFor(case, localHistory, serverReports, userName) else emptyMap()
+            val sections = if (case != null) {
+                buildReportPdfSections(case, spec, caseEngineers, group, discipline, schedule, historyByStage, today, userName)
+            } else {
+                listOf(PdfSection("مشخصات پرونده", listOf(
+                    "شماره پرونده: ${record.caseNumber}",
+                    "مالک: ${toPersianChars(record.owner)}"
+                )))
+            }
+            val dir = File(context.cacheDir, "print").apply { mkdirs() }
+            val stageName = stageNameForNumber(record.stage)
+            val out = File(dir, "گزارش مرحله $stageName ${record.owner}.pdf")
+            generateReportPdf(
+                title = "گزارش مرحله $stageName",
+                subtitle = "مانیتورینگ نظام مهندسی",
+                sections = sections,
+                footer = "تاریخ گزارش: ${displayShamsiDate(record.createdAt)}",
+                outputFile = out
+            )
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    // Print a local (on-device) report: the report's own Word file is
+    // converted to PDF exactly like the PDF export, so the print looks
+    // like the template. When the Word file is gone it is rebuilt from
+    // the template; when no template exists at all, the old simple
+    // data-driven PDF is used so printing never breaks. A PDF record
+    // prints its own file directly.
     fun printLocalReport(record: GeneratedReportRecord) {
         if (printingId != null) return
         printingId = -1L
         printError = ""
         scope.launch {
-            val file = withContext(Dispatchers.IO) {
+            val jobName = "گزارش ${toPersianChars(record.owner)}"
+            var printed = false
+            // 1. The record itself is a PDF file that still exists.
+            val recFile = File(record.filePath)
+            if ((record.fileType == "pdf" || record.filePath.lowercase().endsWith(".pdf")) && recFile.exists()) {
                 try {
-                    val case = cases.firstOrNull { it.caseNumber == record.caseNumber }
-                    val spec = specs.firstOrNull { it.caseNumber == record.caseNumber }
-                    val caseEngineers = engineers.filter { it.caseNumber == record.caseNumber }
-                    val (group, discipline) = if (case != null) {
-                        resolveCaseGroupDiscipline(case, spec, engineers, fees, serverReports)
-                    } else "" to ""
-                    val scheduleConfig = ScheduleConfig(context)
-                    val today = todayJalali()
-                    val stageCount = scheduleConfig.stageCount(group, discipline)
-                    val permitRaw = spec?.permitDate?.ifBlank { case?.permitDate } ?: case?.permitDate ?: ""
-                    val registeredStages = serverReports.filter { it.caseNumber == record.caseNumber && isOwnServerReport(it, userName) }
-                        .mapNotNull { stageNumberFromTitle(it.stage).takeIf { n -> n > 0 } }.toSet()
-                    val schedule = scheduleForCase(permitRaw, group, stageCount, registeredStages, today, monthsOverride = scheduleConfig.months(group))
-                    val historyByStage = if (case != null) historyByStageFor(case, localHistory, serverReports, userName) else emptyMap()
-                    val sections = if (case != null) {
-                        buildReportPdfSections(case, spec, caseEngineers, group, discipline, schedule, historyByStage, today, userName)
-                    } else {
-                        listOf(PdfSection("مشخصات پرونده", listOf(
-                            "شماره پرونده: ${record.caseNumber}",
-                            "مالک: ${toPersianChars(record.owner)}"
-                        )))
-                    }
-                    val dir = File(context.cacheDir, "print").apply { mkdirs() }
-                    val stageName = stageNameForNumber(record.stage)
-                    val out = File(dir, "گزارش مرحله $stageName ${record.owner}.pdf")
-                    generateReportPdf(
-                        title = "گزارش مرحله $stageName",
-                        subtitle = "مانیتورینگ نظام مهندسی",
-                        sections = sections,
-                        footer = "تاریخ گزارش: ${displayShamsiDate(record.createdAt)}",
-                        outputFile = out
-                    )
+                    printPdfFile(context, recFile, jobName)
+                    printed = true
                 } catch (_: Exception) {
-                    null
+                }
+            }
+            // 2. The Word file still exists: convert it and print.
+            if (!printed && record.filePath.lowercase().endsWith(".docx") && recFile.exists()) {
+                printed = withContext(Dispatchers.IO) { printDocxFile(context, recFile, jobName) }
+            }
+            // 3. The Word file is gone: rebuild it from the template
+            // (normal folder first, then the signed one), convert, print.
+            if (!printed) {
+                printed = withContext(Dispatchers.IO) {
+                    val rebuilt = rebuildWordForPrint(record)
+                    rebuilt != null && printDocxFile(context, rebuilt, jobName)
+                }
+            }
+            // 4. Fallback: the simple data-driven PDF, so printing never breaks.
+            if (!printed) {
+                val file = withContext(Dispatchers.IO) { buildSimplePrintPdf(record) }
+                if (file != null) {
+                    try {
+                        printPdfFile(context, file, jobName)
+                        printed = true
+                    } catch (_: Exception) {
+                    }
                 }
             }
             printingId = null
-            if (file != null) {
-                try {
-                    printPdfFile(context, file, "گزارش ${toPersianChars(record.owner)}")
-                } catch (_: Exception) {
-                    printError = "خطا در ارسال به پرینتر"
-                }
-            } else {
-                printError = "خطا در آماده‌سازی فایل چاپ"
-            }
+            if (!printed) printError = "خطا در آماده‌سازی فایل چاپ"
         }
     }
 
@@ -1663,6 +1956,162 @@ private fun FilterDropdown(
     }
 }
 
+/** One row of the generator's "مسیرها" section: the current path with a
+ *  "تغییر" button and, when it differs from the default, a reset button. */
+@Composable
+private fun ReportPathRow(
+    label: String,
+    path: String,
+    isDefault: Boolean,
+    onChange: () -> Unit,
+    onReset: () -> Unit
+) {
+    Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Text(label, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            Text(path, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                TextButton(onClick = onChange) { Text("تغییر", fontSize = 12.sp) }
+                if (!isDefault) {
+                    TextButton(onClick = onReset) { Text("بازگردانی به پیش‌فرض", fontSize = 12.sp) }
+                }
+            }
+        }
+    }
+}
+
+/** Edit one report path: type it, or pick a suggestion (which fills the
+ *  field). Saving writes the pref; the caller refreshes its state. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PathEditDialog(
+    title: String,
+    currentPath: String,
+    defaultPath: String,
+    onSave: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var draft by remember { mutableStateOf(currentPath) }
+    val suggestions = listOf(
+        "پیش‌فرض" to defaultPath,
+        "حافظه اصلی" to android.os.Environment.getExternalStorageDirectory().absolutePath,
+        "Documents" to android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOCUMENTS).absolutePath,
+        "Downloads" to android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS).absolutePath
+    )
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title, fontSize = 16.sp, fontWeight = FontWeight.Bold) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = draft,
+                    onValueChange = { draft = it },
+                    label = { Text("مسیر", fontSize = 12.sp) },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+                Text("مسیرهای پیشنهادی:", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                suggestions.forEach { (label, path) ->
+                    TextButton(onClick = { draft = path }) {
+                        Text("$label\n$path", fontSize = 12.sp)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                val value = draft.trim()
+                if (value.isNotBlank()) onSave(value)
+            }) { Text("ذخیره") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("انصراف") }
+        }
+    )
+}
+
+/** The advanced filter for the generator's case list: same pattern as the
+ *  cases filter — group as chips, the rest as dropdowns built from the
+ *  values actually in the visible list. Draft state lives inside the
+ *  dialog; nothing changes until "اعمال فیلتر". */
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@Composable
+private fun GeneratorFilterDialog(
+    group: String?,
+    discipline: String?,
+    owner: String?,
+    office: String?,
+    state: String?,
+    workType: String?,
+    groupOptions: List<String>,
+    disciplineOptions: List<String>,
+    ownerOptions: List<String>,
+    officeOptions: List<String>,
+    stateOptions: List<String>,
+    workTypeOptions: List<String>,
+    onApply: (group: String?, discipline: String?, owner: String?, office: String?, state: String?, workType: String?) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var draftGroup by remember { mutableStateOf(group) }
+    var draftDiscipline by remember { mutableStateOf(discipline) }
+    var draftOwner by remember { mutableStateOf(owner) }
+    var draftOffice by remember { mutableStateOf(office) }
+    var draftState by remember { mutableStateOf(state) }
+    var draftWorkType by remember { mutableStateOf(workType) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("فیلتر پیشرفته", fontSize = 16.sp, fontWeight = FontWeight.Bold) },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text("گروه ساختمانی", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    FilterChip(
+                        selected = draftGroup == null,
+                        onClick = { draftGroup = null },
+                        label = { Text("همه", fontSize = 12.sp) }
+                    )
+                    groupOptions.forEach { g ->
+                        FilterChip(
+                            selected = draftGroup == g,
+                            onClick = { draftGroup = g },
+                            label = { Text("گروه $g", fontSize = 12.sp) }
+                        )
+                    }
+                }
+                FilterDropdown(label = "رشته", value = draftDiscipline, options = disciplineOptions, onSelect = { draftDiscipline = it })
+                FilterDropdown(label = "مالک", value = draftOwner, options = ownerOptions, onSelect = { draftOwner = it })
+                FilterDropdown(label = "دفتر", value = draftOffice, options = officeOptions, onSelect = { draftOffice = it })
+                FilterDropdown(label = "وضعیت", value = draftState, options = stateOptions, onSelect = { draftState = it })
+                FilterDropdown(label = "نوع کار", value = draftWorkType, options = workTypeOptions, onSelect = { draftWorkType = it })
+                OutlinedButton(
+                    onClick = {
+                        draftGroup = null
+                        draftDiscipline = null
+                        draftOwner = null
+                        draftOffice = null
+                        draftState = null
+                        draftWorkType = null
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("پاک کردن همهٔ فیلترها", fontSize = 13.sp)
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                onApply(draftGroup, draftDiscipline, draftOwner, draftOffice, draftState, draftWorkType)
+            }) { Text("اعمال فیلتر") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("انصراف") }
+        }
+    )
+}
+
 // ==================== DIGIT UTILS ====================
 
 private fun toPersianDigits(input: String): String = input.replace("0","۰").replace("1","۱").replace("2","۲").replace("3","۳").replace("4","۴").replace("5","۵").replace("6","۶").replace("7","۷").replace("8","۸").replace("9","۹")
@@ -1709,6 +2158,55 @@ internal fun loadPdfMaxBytes(context: Context): Long =
 
 internal fun savePdfMaxBytes(context: Context, bytes: Long) {
     try { context.getSharedPreferences("nezam_settings", Context.MODE_PRIVATE).edit().putLong("pdf_max_bytes", bytes).apply() } catch (_: Exception) {}
+}
+
+/** Paths for the report generator (templates / signed templates / outputs).
+ *  Stored in nezam_settings so the user can move them; each can be reset
+ *  to its default from the generator's "مسیرها" section. */
+internal const val DEFAULT_TEMPLATES_PATH = "/storage/emulated/0/NezamMonitor/templates"
+internal const val DEFAULT_SIGNED_TEMPLATES_PATH = "/storage/emulated/0/NezamMonitor/templates_signed"
+internal const val DEFAULT_OUTPUTS_PATH = "/storage/emulated/0/NezamMonitor/outputs"
+
+internal data class ReportPaths(
+    val templatesPath: String = DEFAULT_TEMPLATES_PATH,
+    val signedTemplatesPath: String = DEFAULT_SIGNED_TEMPLATES_PATH,
+    val outputsPath: String = DEFAULT_OUTPUTS_PATH
+)
+
+internal fun loadReportPaths(context: Context): ReportPaths {
+    return try {
+        val prefs = context.getSharedPreferences("nezam_settings", Context.MODE_PRIVATE)
+        ReportPaths(
+            templatesPath = prefs.getString("templates_path", DEFAULT_TEMPLATES_PATH) ?: DEFAULT_TEMPLATES_PATH,
+            signedTemplatesPath = prefs.getString("signed_templates_path", DEFAULT_SIGNED_TEMPLATES_PATH) ?: DEFAULT_SIGNED_TEMPLATES_PATH,
+            outputsPath = prefs.getString("outputs_path", DEFAULT_OUTPUTS_PATH) ?: DEFAULT_OUTPUTS_PATH
+        )
+    } catch (_: Exception) {
+        ReportPaths()
+    }
+}
+
+internal fun saveReportPath(context: Context, key: String, value: String) {
+    try {
+        context.getSharedPreferences("nezam_settings", Context.MODE_PRIVATE)
+            .edit().putString(key, value).apply()
+    } catch (_: Exception) {
+    }
+}
+
+internal fun defaultReportPath(key: String): String = when (key) {
+    "signed_templates_path" -> DEFAULT_SIGNED_TEMPLATES_PATH
+    "outputs_path" -> DEFAULT_OUTPUTS_PATH
+    else -> DEFAULT_TEMPLATES_PATH
+}
+
+/** "تولید گزارش امضا شده": when on, Word and PDF generation use the
+ *  signed-templates folder instead of the normal one. */
+internal fun loadSignedReport(context: Context): Boolean =
+    try { context.getSharedPreferences("nezam_settings", Context.MODE_PRIVATE).getBoolean("signed_report", false) } catch (_: Exception) { false }
+
+internal fun saveSignedReport(context: Context, value: Boolean) {
+    try { context.getSharedPreferences("nezam_settings", Context.MODE_PRIVATE).edit().putBoolean("signed_report", value).apply() } catch (_: Exception) {}
 }
 
 internal fun saveReportHistory(context: Context, records: List<GeneratedReportRecord>) {

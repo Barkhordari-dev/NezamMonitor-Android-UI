@@ -81,6 +81,24 @@ private class PdfFilePrintAdapter(private val file: File) : PrintDocumentAdapter
     }
 }
 
+/** Converts a .docx report to PDF (the same converter as the PDF export)
+ *  into the print cache and sends it to the printer, so the print looks
+ *  like the template. Returns false when the conversion fails, so the
+ *  caller can fall back to the simple data-driven PDF. */
+fun printDocxFile(context: Context, docxFile: File, jobName: String): Boolean {
+    return try {
+        if (!docxFile.exists()) return false
+        val dir = File(context.cacheDir, "print").apply { mkdirs() }
+        val out = File(dir, docxFile.nameWithoutExtension + ".pdf")
+        if (!convertDocxToPdf(docxFile, out)) return false
+        if (!out.exists()) return false
+        printPdfFile(context, out, jobName)
+        true
+    } catch (_: Exception) {
+        false
+    }
+}
+
 /** Prints an image file (e.g. a downloaded server report photo) as one A4
  *  page, scaled to fit the page while keeping its aspect ratio. */
 fun printImageFile(context: Context, file: File, jobName: String) {

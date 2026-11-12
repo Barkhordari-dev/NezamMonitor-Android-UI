@@ -15,6 +15,8 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -39,6 +41,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.nezammonitor.app.api.NezamApi
@@ -64,6 +67,7 @@ fun UpdateScreen(
 
     var username by remember { mutableStateOf(prefs.getString("username", "") ?: "") }
     var password by remember { mutableStateOf(prefs.getString("password", "") ?: "") }
+    var passwordVisible by remember { mutableStateOf(false) }
     var saveCredentials by remember { mutableStateOf(prefs.getBoolean("save_creds", false)) }
 
     // Google Password Manager (autofill): the two fields advertise
@@ -164,7 +168,15 @@ fun UpdateScreen(
                     },
                 singleLine = true,
                 shape = MaterialTheme.shapes.large,
-                visualTransformation = PasswordVisualTransformation(),
+                visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                trailingIcon = {
+                    IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                        Icon(
+                            imageVector = if (passwordVisible) Icons.Filled.Visibility else Icons.Filled.VisibilityOff,
+                            contentDescription = if (passwordVisible) "پنهان کردن رمز عبور" else "نمایش رمز عبور"
+                        )
+                    }
+                },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
             )
 

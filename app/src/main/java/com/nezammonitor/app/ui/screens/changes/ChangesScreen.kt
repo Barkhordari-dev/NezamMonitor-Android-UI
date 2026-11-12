@@ -1,22 +1,37 @@
 package com.nezammonitor.app.ui.screens.changes
 
+import android.content.Context
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.nezammonitor.app.api.toPersianChars
 import com.nezammonitor.app.data.CaseEntity
+import com.nezammonitor.app.data.EngineerEntity
+import com.nezammonitor.app.data.FeeEntity
+import com.nezammonitor.app.data.ReportEntity
 import com.nezammonitor.app.data.SnapshotData
 import com.nezammonitor.app.data.SnapshotEntity
 import com.nezammonitor.app.data.SnapshotStore
+import com.nezammonitor.app.data.SpecificationEntity
 import com.nezammonitor.app.ui.components.NezamEmptyState
+import com.nezammonitor.app.ui.components.NezamSearchField
+import com.nezammonitor.app.ui.components.feeTitle
+import com.nezammonitor.app.ui.components.formatFeeAmount
+import com.nezammonitor.app.ui.components.payStatusDisplay
+import com.nezammonitor.app.ui.components.reportStageLabel
+import com.nezammonitor.app.ui.screens.reportgen.buildingGroupLetter
 import com.nezammonitor.app.ui.screens.reportgen.displayShamsiDate
 import com.nezammonitor.app.viewmodel.MainViewModel
 import kotlinx.coroutines.Dispatchers
@@ -74,6 +89,32 @@ fun diffSnapshots(current: SnapshotData, previous: SnapshotData): SnapshotDiff {
     )
 }
 
+/** Where the active (viewed) snapshot id is kept: -1 means "none active".
+ *  Activation is read-only viewing — it never touches live data. */
+private const val CHANGES_PREFS = "nezam_changes"
+private const val KEY_ACTIVE_SNAPSHOT_ID = "active_snapshot_id"
+private const val NO_ACTIVE_SNAPSHOT = -1L
+
+/** Resolved (building group, discipline) for a snapshotted case: the case
+ *  row itself, then its specification (group) and its engineers/fees/
+ *  reports (discipline) — same sources as the Cases filter. */
+private fun resolveSnapshotGroupDiscipline(
+    case: CaseEntity,
+    spec: SpecificationEntity?,
+    engineers: List<EngineerEntity>,
+    fees: List<FeeEntity>,
+    reports: List<ReportEntity>
+): Pair<String, String> {
+    val group = case.buildingGroup.ifBlank { spec?.buildingGroup ?: "" }
+    val disc = case.discipline.ifBlank {
+        engineers.firstOrNull { it.caseNumber == case.caseNumber }?.discipline
+            ?: fees.firstOrNull { it.caseNumber == case.caseNumber }?.discipline
+            ?: reports.firstOrNull { it.caseNumber == case.caseNumber }?.discipline
+            ?: ""
+    }
+    return group to disc
+}
+
 /** The Changes (Snapshots) menu: every sync/import saves a snapshot of the
  *  dataset. Pick one to see what changed versus the previous one, pick two
  *  and compare them, select several and merge them into the live data (new
@@ -85,6 +126,19 @@ fun ChangesScreen(viewModel: MainViewModel, onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
     var selectedIds by remember { mutableStateOf(setOf<Long>()) }
     var expandedId by remember { mutableStateOf<Long?>(null) }
+    // Snapshot activation (read-only viewing): only one snapshot can be
+    // active at a time; the id survives restarts via SharedPreferences.
+    val context = LocalContext.current
+    val changesPrefs = remember(context) { context.getSharedPreferences(CHANGES_PREFS, Context.MODE_PRIVATE) }
+    var activeSnapshotId by remember { mutableStateOf(changesPrefs.getLong(KEY_ACTIVE_SNAPSHOT_ID, NO_ACTIVE_SNAPSHOT)) }
+    var viewerQuery by remember { mutableStateOf("") }
+    var viewerDetailCase by remember { mutableStateOf<CaseEntity?>(null) }
+    fun setActiveSnapshot(id: Long) {
+        changesPrefs.edit().putLong(KEY_ACTIVE_SNAPSHOT_ID, id).apply()
+        activeSnapshotId = id
+        viewerQuery = ""
+        viewerDetailCase = null
+    }
     // The two snapshots being compared (older id first, newer id second);
     // null when no comparison is open.
     var comparePair by remember { mutableStateOf<Pair<Long, Long>?>(null) }
@@ -116,6 +170,21 @@ fun ChangesScreen(viewModel: MainViewModel, onBack: () -> Unit) {
         diffSnapshots(newerData, olderData)
     }
 
+    // The snapshot being viewed (read-only): its data comes from its own
+    // JSON via SnapshotStore.fromJson — the live database is never read
+    // or written for the viewer.
+    val activeSnapshot = snapshots.firstOrNull { it.id == activeSnapshotId }
+    val activeData: SnapshotData? = remember(activeSnapshot) {
+        activeSnapshot?.let { SnapshotStore.fromJson(it.dataJson) }
+    }
+    // Drop a stale active id once the real list has arrived and the
+    // snapshot is no longer in it (e.g. deleted from another path).
+    LaunchedEffect(snapshots) {
+        if (snapshots.isNotEmpty() && activeSnapshotId != NO_ACTIVE_SNAPSHOT && activeSnapshot == null) {
+            setActiveSnapshot(NO_ACTIVE_SNAPSHOT)
+        }
+    }
+
     fun doMerge() {
         if (selectedIds.isEmpty() || isWorking) return
         isWorking = true
@@ -134,6 +203,8 @@ fun ChangesScreen(viewModel: MainViewModel, onBack: () -> Unit) {
         if (selectedIds.isEmpty() || isWorking) return
         isWorking = true
         viewModel.deleteSnapshots(selectedIds.toList())
+        // Deleting the active snapshot clears the activation (and its viewer).
+        if (activeSnapshotId in selectedIds) setActiveSnapshot(NO_ACTIVE_SNAPSHOT)
         statusText = "✅ ${selectedIds.size} اسنپ‌شات حذف شد"
         selectedIds = emptySet()
         expandedId = null
@@ -169,6 +240,12 @@ fun ChangesScreen(viewModel: MainViewModel, onBack: () -> Unit) {
         )
     }
 
+    // Case detail from the active snapshot (read-only viewer).
+    val detailCase = viewerDetailCase
+    if (detailCase != null && activeData != null) {
+        SnapshotCaseDetailDialog(caseItem = detailCase, data = activeData, onDismiss = { viewerDetailCase = null })
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -186,7 +263,7 @@ fun ChangesScreen(viewModel: MainViewModel, onBack: () -> Unit) {
     ) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize().padding(16.dp)) {
             Text(
-                "هر بروزرسانی و ایمپورت یک اسنپ‌شات از داده‌ها ذخیره می‌کند. روی یکی بزنید تا تغییرهایش نسبت به قبلی را ببینید؛ دو تا را انتخاب کنید و با «مقایسه دو اسنپ‌شات» تغییرها را ببینید؛ چند تا را انتخاب کنید و ادغام کنید یا حذف کنید.",
+                "هر بروزرسانی و ایمپورت یک اسنپ‌شات از داده‌ها ذخیره می‌کند. روی یکی بزنید تا تغییرهایش نسبت به قبلی را ببینید؛ دو تا را انتخاب کنید و با «مقایسه دو اسنپ‌شات» تغییرها را ببینید؛ چند تا را انتخاب کنید و ادغام کنید یا حذف کنید. برای دیدن داده‌های یک اسنپ‌شات، آن را با «فعال کردن» فعال کنید؛ فعال‌سازی فقط نمایش است و داده‌های فعلی برنامه را تغییر نمی‌دهد.",
                 fontSize = 12.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -254,6 +331,22 @@ fun ChangesScreen(viewModel: MainViewModel, onBack: () -> Unit) {
                 )
             } else {
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    // The active snapshot viewer: first item of the list,
+                    // so its cases scroll with the rest. Read-only — it
+                    // shows the snapshot's own JSON, never live data.
+                    if (activeSnapshot != null && activeData != null) {
+                        item {
+                            SnapshotViewerCard(
+                                snapshot = activeSnapshot,
+                                data = activeData,
+                                query = viewerQuery,
+                                onQueryChange = { viewerQuery = it },
+                                onDeactivate = { setActiveSnapshot(NO_ACTIVE_SNAPSHOT) },
+                                onCaseClick = { viewerDetailCase = it }
+                            )
+                        }
+                    }
+
                     // The open two-snapshot comparison: first item of the
                     // list, so a long full diff scrolls with the rest.
                     val pair = comparePair
@@ -322,6 +415,23 @@ fun ChangesScreen(viewModel: MainViewModel, onBack: () -> Unit) {
                                             "${snap.caseCount} پرونده | ${snap.feeCount} حق‌الزحمه | ${snap.reportCount} گزارش",
                                             fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
+                                    }
+                                    if (snap.id == activeSnapshotId) {
+                                        Card(
+                                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+                                        ) {
+                                            Text(
+                                                "✓ فعال",
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                                            )
+                                        }
+                                    } else {
+                                        TextButton(onClick = { setActiveSnapshot(snap.id) }) {
+                                            Text("فعال کردن", fontSize = 12.sp)
+                                        }
                                     }
                                     Text(if (expanded) "▲" else "▼", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
@@ -392,4 +502,161 @@ private fun SnapshotDiffContent(diff: SnapshotDiff, header: String, showAll: Boo
             fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
+}
+
+/** The viewer for the active snapshot: summary counts, a note that this is
+ *  read-only, a search field over the snapshot's own cases, and one row
+ *  per case (tap for details). Everything comes from the snapshot JSON —
+ *  the live database is never touched. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SnapshotViewerCard(
+    snapshot: SnapshotEntity,
+    data: SnapshotData,
+    query: String,
+    onQueryChange: (String) -> Unit,
+    onDeactivate: () -> Unit,
+    onCaseClick: (CaseEntity) -> Unit
+) {
+    val q = toPersianChars(query).trim()
+    val visibleCases = remember(data, q) {
+        if (q.isBlank()) data.cases
+        else data.cases.filter {
+            toPersianChars(it.caseNumber).contains(q) || toPersianChars(it.owner).contains(q)
+        }
+    }
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("👁 نمایش اسنپ‌شات", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    Text(
+                        "«${snapshot.label}» — ${displayShamsiDate(snapshot.createdAt)}",
+                        fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        "${data.cases.size} پرونده | ${data.engineers.size} مهندس | ${data.fees.size} حق‌الزحمه | ${data.reports.size} گزارش",
+                        fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                OutlinedButton(onClick = onDeactivate) {
+                    Text("غیرفعال کردن", fontSize = 12.sp)
+                }
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                "نمایش داده‌های اسنپ‌شات — داده‌های فعلی برنامه تغییر نمی‌کند.",
+                fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            NezamSearchField(
+                value = query,
+                onValueChange = onQueryChange,
+                modifier = Modifier.fillMaxWidth(),
+                label = "جستجوی شماره پرونده / مالک..."
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            if (visibleCases.isEmpty()) {
+                Text(
+                    if (data.cases.isEmpty()) "این اسنپ‌شات پرونده‌ای ندارد" else "موردی یافت نشد",
+                    fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else {
+                visibleCases.forEach { case ->
+                    val engCount = data.engineers.count { it.caseNumber == case.caseNumber }
+                    val feeCount = data.fees.count { it.caseNumber == case.caseNumber }
+                    val repCount = data.reports.count { it.caseNumber == case.caseNumber }
+                    Card(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                        onClick = { onCaseClick(case) }
+                    ) {
+                        Column(modifier = Modifier.padding(10.dp)) {
+                            Text(toPersianChars(case.owner), fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            Text(case.caseNumber, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(
+                                "$engCount مهندس | $feeCount حق‌الزحمه | $repCount گزارش",
+                                fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Full details of one case as stored in the snapshot (read-only): case
+ *  fields, then its engineers, fees and reports from the same snapshot. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SnapshotCaseDetailDialog(caseItem: CaseEntity, data: SnapshotData, onDismiss: () -> Unit) {
+    val spec = data.specs.firstOrNull { it.caseNumber == caseItem.caseNumber }
+    val caseEngineers = data.engineers.filter { it.caseNumber == caseItem.caseNumber }
+    val caseFees = data.fees.filter { it.caseNumber == caseItem.caseNumber }
+    val caseReports = data.reports.filter { it.caseNumber == caseItem.caseNumber }
+    val (group, discipline) = resolveSnapshotGroupDiscipline(caseItem, spec, caseEngineers, caseFees, caseReports)
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(toPersianChars(caseItem.owner), fontSize = 16.sp, fontWeight = FontWeight.Bold) },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text("پرونده: ${caseItem.caseNumber}", fontSize = 13.sp)
+                val permitNumber = caseItem.permitNumber.ifBlank { spec?.permitNumber ?: "" }
+                val permitDate = caseItem.permitDate.ifBlank { spec?.permitDate ?: "" }
+                if (permitNumber.isNotBlank()) Text("شماره پروانه: $permitNumber", fontSize = 12.sp)
+                if (permitDate.isNotBlank()) Text("تاریخ صدور: ${displayShamsiDate(permitDate)}", fontSize = 12.sp)
+                val address = caseItem.address.ifBlank { spec?.address ?: "" }
+                if (address.isNotBlank()) Text("نشانی: ${toPersianChars(address)}", fontSize = 12.sp)
+                if (group.isNotBlank()) Text("گروه ساختمانی: ${buildingGroupLetter(group)}", fontSize = 12.sp)
+                if (discipline.isNotBlank()) Text("رشته: ${toPersianChars(discipline)}", fontSize = 12.sp)
+                if (caseItem.office.isNotBlank()) Text("دفتر: ${caseItem.office}", fontSize = 12.sp)
+                if (caseItem.stateTitle.isNotBlank()) Text("وضعیت: ${caseItem.stateTitle}", fontSize = 12.sp)
+                if (caseItem.workType.isNotBlank()) Text("نوع کار: ${caseItem.workType}", fontSize = 12.sp)
+                if (caseEngineers.isNotEmpty()) {
+                    Text("مهندسان", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    caseEngineers.forEach { eng ->
+                        Text(
+                            "• ${toPersianChars(eng.name)} — ${toPersianChars(eng.discipline)}${if (eng.role.isNotBlank()) " (${eng.role})" else ""}",
+                            fontSize = 12.sp
+                        )
+                    }
+                }
+                if (caseFees.isNotEmpty()) {
+                    Text("حق‌الزحمه", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    caseFees.forEach { fee ->
+                        Text(
+                            "• ${feeTitle(fee, caseFees)} — ${formatFeeAmount(fee.amount)} — ${payStatusDisplay(fee)}",
+                            fontSize = 12.sp
+                        )
+                    }
+                }
+                if (caseReports.isNotEmpty()) {
+                    Text("گزارش‌ها", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    caseReports.forEach { rep ->
+                        val stageLabel = reportStageLabel(rep.reportType, rep.stage)
+                        Text(
+                            "• ${toPersianChars(rep.reportType)}${if (stageLabel.isNotBlank()) " ($stageLabel)" else ""} — ${rep.visitDate}",
+                            fontSize = 12.sp
+                        )
+                    }
+                }
+                if (caseEngineers.isEmpty() && caseFees.isEmpty() && caseReports.isEmpty()) {
+                    Text(
+                        "برای این پرونده مهندس، حق‌الزحمه یا گزارشی در اسنپ‌شات نیست.",
+                        fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("بستن") }
+        }
+    )
 }

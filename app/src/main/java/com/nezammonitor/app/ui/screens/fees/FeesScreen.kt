@@ -1,9 +1,11 @@
-@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 package com.nezammonitor.app.ui.screens.fees
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Warning
@@ -22,8 +24,12 @@ import com.nezammonitor.app.ui.components.NezamEmptyState
 import com.nezammonitor.app.ui.components.NezamSearchField
 import com.nezammonitor.app.ui.components.NezamSegmentedControl
 import com.nezammonitor.app.ui.components.feeTitle
+import com.nezammonitor.app.ui.components.feeTypeName
+import com.nezammonitor.app.ui.components.isFeeConfirmed
 import com.nezammonitor.app.ui.components.parseAmount
 import com.nezammonitor.app.ui.components.payStatusDisplay
+import com.nezammonitor.app.ui.components.stageNameForNumber
+import com.nezammonitor.app.ui.screens.reportgen.toPersianDigitsStr
 import com.nezammonitor.app.viewmodel.MainViewModel
 
 private fun normalizeDigits(s: String): String = s
@@ -40,6 +46,23 @@ private fun formatAmountDisplay(raw: String): String {
     num = normalizeDigits(num)
     val v = num.toLongOrNull() ?: return raw
     return String.format(java.util.Locale.US, "%,d", v) + " ریال"
+}
+
+/** The fee's own discipline for filtering (same fallback as feeTitle: a
+ *  sibling fee of the same case when the fee itself has none) — never a
+ *  hardcoded value. Compared in Persian script. */
+private fun feeDisciplineOf(fee: FeeEntity, allOfCase: List<FeeEntity>): String = toPersianChars(
+    fee.discipline.ifBlank {
+        allOfCase.firstOrNull { it.discipline.isNotBlank() }?.discipline ?: ""
+    }.trim()
+)
+
+/** Label for a fee stage value in the filter: "0" is a non-stage fee
+ *  (بیمه، حسن انجام کار، …), the rest are report stages. */
+private fun feeStageFilterLabel(stage: String): String {
+    if (stage.trim() == "0") return "بدون مرحله"
+    val n = stage.trim().toIntOrNull() ?: return "مرحله $stage"
+    return "مرحله ${stageNameForNumber(n)}"
 }
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -77,10 +100,54 @@ private fun FeesTab(fees: List<FeeEntity>, cases: List<com.nezammonitor.app.data
     var selectedIds by remember { mutableStateOf(setOf<Long>()) }
     var payFilter by remember { mutableStateOf<String?>(null) }
 
+    // Advanced filters (selection-based, from the filter dialog; every value
+    // comes from the loaded fees/cases, never typed or hardcoded)
+    var filterStage by remember { mutableStateOf<String?>(null) }
+    var filterFeeType by remember { mutableStateOf<String?>(null) }
+    var filterPayStatus by remember { mutableStateOf<String?>(null) }
+    var filterConfirmed by remember { mutableStateOf<Boolean?>(null) }
+    var filterDiscipline by remember { mutableStateOf<String?>(null) }
+    var filterOwner by remember { mutableStateOf<String?>(null) }
+    var showFilterDialog by remember { mutableStateOf(false) }
+
     val caseOwnerMap = remember(cases) { cases.associate { it.caseNumber to it.owner } }
     val feesByCase = remember(fees) { fees.groupBy { it.caseNumber } }
 
-    val filtered = remember(fees, searchQuery, payFilter, feesByCase) {
+    // Options built from the values actually in the loaded list.
+    val stageOptions = remember(fees) {
+        fees.map { it.stage.trim() }.filter { it.isNotEmpty() }.distinct()
+            .sortedBy { it.toIntOrNull() ?: 99 }
+    }
+    val feeTypeOptions = remember(fees, feesByCase) {
+        fees.map { feeTypeName(it, feesByCase[it.caseNumber] ?: emptyList()) }
+            .filter { it.isNotBlank() }.distinct().sorted()
+    }
+    val payStatusOptions = remember(fees) {
+        fees.map { payStatusDisplay(it) }.filter { it.isNotBlank() }.distinct().sorted()
+    }
+    val disciplineOptions = remember(fees, feesByCase) {
+        fees.map { feeDisciplineOf(it, feesByCase[it.caseNumber] ?: emptyList()) }
+            .filter { it.isNotBlank() }.distinct().sorted()
+    }
+    val ownerOptions = remember(fees, caseOwnerMap) {
+        fees.mapNotNull { caseOwnerMap[it.caseNumber] }.map { toPersianChars(it) }
+            .filter { it.isNotBlank() }.distinct().sorted()
+    }
+
+    val activeFilterCount = listOf(
+        filterStage != null, filterFeeType != null, filterPayStatus != null,
+        filterConfirmed != null, filterDiscipline != null, filterOwner != null
+    ).count { it }
+    fun clearAllFilters() {
+        filterStage = null
+        filterFeeType = null
+        filterPayStatus = null
+        filterConfirmed = null
+        filterDiscipline = null
+        filterOwner = null
+    }
+
+    val filtered = remember(fees, searchQuery, payFilter, feesByCase, filterStage, filterFeeType, filterPayStatus, filterConfirmed, filterDiscipline, filterOwner) {
         fees.filter { f ->
             val q = searchQuery.trim()
             val caseFees = feesByCase[f.caseNumber] ?: emptyList()
@@ -102,8 +169,41 @@ private fun FeesTab(fees: List<FeeEntity>, cases: List<com.nezammonitor.app.data
                 "تایید" -> payStatusDisplay(f) == "تایید شده"
                 else -> f.payStatus.contains(pf, true)
             }
-            matchSearch && matchPay
+            val matchStage = filterStage == null || f.stage.trim() == filterStage
+            val matchFeeType = filterFeeType == null || feeTypeName(f, caseFees) == filterFeeType
+            val matchPayStatus = filterPayStatus == null || payStatusDisplay(f) == filterPayStatus
+            val matchConfirmed = filterConfirmed == null || isFeeConfirmed(f) == filterConfirmed
+            val matchDiscipline = filterDiscipline == null || feeDisciplineOf(f, caseFees) == filterDiscipline
+            val matchOwner = filterOwner == null || toPersianChars(caseOwnerMap[f.caseNumber] ?: "") == filterOwner
+            matchSearch && matchPay && matchStage && matchFeeType && matchPayStatus &&
+                matchConfirmed && matchDiscipline && matchOwner
         }
+    }
+
+    if (showFilterDialog) {
+        FeesFilterDialog(
+            stage = filterStage,
+            feeType = filterFeeType,
+            payStatus = filterPayStatus,
+            confirmed = filterConfirmed,
+            discipline = filterDiscipline,
+            owner = filterOwner,
+            stageOptions = stageOptions,
+            feeTypeOptions = feeTypeOptions,
+            payStatusOptions = payStatusOptions,
+            disciplineOptions = disciplineOptions,
+            ownerOptions = ownerOptions,
+            onApply = { stage, feeType, payStatus, confirmed, discipline, owner ->
+                filterStage = stage
+                filterFeeType = feeType
+                filterPayStatus = payStatus
+                filterConfirmed = confirmed
+                filterDiscipline = discipline
+                filterOwner = owner
+                showFilterDialog = false
+            },
+            onDismiss = { showFilterDialog = false }
+        )
     }
 
     val selectedTotal = remember(filtered, selectedIds) {
@@ -123,6 +223,41 @@ private fun FeesTab(fees: List<FeeEntity>, cases: List<com.nezammonitor.app.data
             FilterChip(selected = payFilter == null, onClick = { payFilter = null }, label = { Text("همه", fontSize = 11.sp) })
             FilterChip(selected = payFilter == "پرداخت", onClick = { payFilter = if (payFilter=="پرداخت") null else "پرداخت" }, label = { Text("پرداخت شده", fontSize = 11.sp) })
             FilterChip(selected = payFilter == "تایید", onClick = { payFilter = if (payFilter=="تایید") null else "تایید" }, label = { Text("تایید شده", fontSize = 11.sp) })
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Button(onClick = { showFilterDialog = true }, modifier = Modifier.weight(1f)) {
+                Text(
+                    if (activeFilterCount > 0) "🔍 فیلتر پیشرفته (${toPersianDigitsStr(activeFilterCount.toString())})"
+                    else "🔍 فیلتر پیشرفته",
+                    fontSize = 13.sp
+                )
+            }
+            if (activeFilterCount > 0) {
+                OutlinedButton(onClick = { clearAllFilters() }) {
+                    Text("پاک کردن", fontSize = 13.sp)
+                }
+            }
+        }
+        // Active filters, each removable on its own
+        if (activeFilterCount > 0) {
+            Spacer(modifier = Modifier.height(8.dp))
+            FlowRow(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                if (filterStage != null) FilterChip(selected = true, onClick = { filterStage = null }, label = { Text("${feeStageFilterLabel(filterStage ?: "")} ✕", fontSize = 11.sp) })
+                if (filterFeeType != null) FilterChip(selected = true, onClick = { filterFeeType = null }, label = { Text("نوع: ${filterFeeType} ✕", fontSize = 11.sp) })
+                if (filterPayStatus != null) FilterChip(selected = true, onClick = { filterPayStatus = null }, label = { Text("پرداخت: ${filterPayStatus} ✕", fontSize = 11.sp) })
+                if (filterConfirmed != null) FilterChip(selected = true, onClick = { filterConfirmed = null }, label = { Text(if (filterConfirmed == true) "تایید شده ✕" else "تایید نشده ✕", fontSize = 11.sp) })
+                if (filterDiscipline != null) FilterChip(selected = true, onClick = { filterDiscipline = null }, label = { Text("رشته: ${filterDiscipline} ✕", fontSize = 11.sp) })
+                if (filterOwner != null) FilterChip(selected = true, onClick = { filterOwner = null }, label = { Text("مالک: ${filterOwner} ✕", fontSize = 11.sp) })
+            }
         }
         // Stats bar — like Windows footer
         Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
@@ -297,6 +432,141 @@ private fun ReceiptsTab(receipts: List<FeeReceiptEntity>) {
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+/** Advanced filter dialog for the fees menu (same pattern as the reports and
+ *  cases filters): every filter is a selection from the values actually in
+ *  the list, never typed. Draft state is applied only on «اعمال فیلتر». */
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@Composable
+private fun FeesFilterDialog(
+    stage: String?,
+    feeType: String?,
+    payStatus: String?,
+    confirmed: Boolean?,
+    discipline: String?,
+    owner: String?,
+    stageOptions: List<String>,
+    feeTypeOptions: List<String>,
+    payStatusOptions: List<String>,
+    disciplineOptions: List<String>,
+    ownerOptions: List<String>,
+    onApply: (stage: String?, feeType: String?, payStatus: String?, confirmed: Boolean?, discipline: String?, owner: String?) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var draftStage by remember { mutableStateOf(stage) }
+    var draftFeeType by remember { mutableStateOf(feeType) }
+    var draftPayStatus by remember { mutableStateOf(payStatus) }
+    var draftConfirmed by remember { mutableStateOf(confirmed) }
+    var draftDiscipline by remember { mutableStateOf(discipline) }
+    var draftOwner by remember { mutableStateOf(owner) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("فیلتر پیشرفته", fontSize = 16.sp, fontWeight = FontWeight.Bold) },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text("مرحله", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    FilterChip(
+                        selected = draftStage == null,
+                        onClick = { draftStage = null },
+                        label = { Text("همه مراحل", fontSize = 12.sp) }
+                    )
+                    stageOptions.forEach { s ->
+                        FilterChip(
+                            selected = draftStage == s,
+                            onClick = { draftStage = s },
+                            label = { Text(feeStageFilterLabel(s), fontSize = 12.sp) }
+                        )
+                    }
+                }
+                Text("تایید", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    FilterChip(
+                        selected = draftConfirmed == null,
+                        onClick = { draftConfirmed = null },
+                        label = { Text("همه", fontSize = 12.sp) }
+                    )
+                    FilterChip(
+                        selected = draftConfirmed == true,
+                        onClick = { draftConfirmed = true },
+                        label = { Text("تایید شده", fontSize = 12.sp) }
+                    )
+                    FilterChip(
+                        selected = draftConfirmed == false,
+                        onClick = { draftConfirmed = false },
+                        label = { Text("تایید نشده", fontSize = 12.sp) }
+                    )
+                }
+                FeesFilterDropdown(label = "نوع حق‌الزحمه", value = draftFeeType, options = feeTypeOptions, onSelect = { draftFeeType = it })
+                FeesFilterDropdown(label = "وضعیت پرداخت", value = draftPayStatus, options = payStatusOptions, onSelect = { draftPayStatus = it })
+                FeesFilterDropdown(label = "رشته", value = draftDiscipline, options = disciplineOptions, onSelect = { draftDiscipline = it })
+                FeesFilterDropdown(label = "مالک", value = draftOwner, options = ownerOptions, onSelect = { draftOwner = it })
+                OutlinedButton(
+                    onClick = {
+                        draftStage = null
+                        draftFeeType = null
+                        draftPayStatus = null
+                        draftConfirmed = null
+                        draftDiscipline = null
+                        draftOwner = null
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("پاک کردن همهٔ فیلترها", fontSize = 13.sp)
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                onApply(draftStage, draftFeeType, draftPayStatus, draftConfirmed, draftDiscipline, draftOwner)
+            }) { Text("اعمال فیلتر") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("انصراف") }
+        }
+    )
+}
+
+/** A selection dropdown for the fees filter (same pattern as the reports
+ *  filter): "همه" plus the values actually in the list. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun FeesFilterDropdown(
+    label: String,
+    value: String?,
+    options: List<String>,
+    onSelect: (String?) -> Unit,
+    displayValue: (String) -> String = { toPersianChars(it) }
+) {
+    var expanded by remember { mutableStateOf(false) }
+    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
+        OutlinedTextField(
+            value = value?.let { displayValue(it) } ?: "همه",
+            onValueChange = {},
+            readOnly = true,
+            label = { Text(label, fontSize = 12.sp) },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            modifier = Modifier.menuAnchor().fillMaxWidth(),
+            singleLine = true
+        )
+        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenuItem(
+                text = { Text("همه", fontSize = 13.sp) },
+                onClick = { onSelect(null); expanded = false }
+            )
+            options.forEach { opt ->
+                DropdownMenuItem(
+                    text = { Text(displayValue(opt), fontSize = 13.sp) },
+                    onClick = { onSelect(opt); expanded = false }
+                )
             }
         }
     }
