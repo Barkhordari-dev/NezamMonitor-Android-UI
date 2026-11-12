@@ -1,7 +1,6 @@
 package com.nezammonitor.app.data
 
 import android.content.ContentValues
-import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import java.io.File
 import java.text.SimpleDateFormat
@@ -35,7 +34,7 @@ import java.util.*
  *   tables carry exactly the Windows columns.
  */
 fun createWindowsDatabaseExport(
-    context: Context,
+    exportsDir: File,
     cases: List<CaseEntity>,
     specs: List<SpecificationEntity>,
     engineers: List<EngineerEntity>,
@@ -46,7 +45,7 @@ fun createWindowsDatabaseExport(
 ): Pair<Boolean, String> {
     var db: SQLiteDatabase? = null
     return try {
-        val dir = File(context.getExternalFilesDir(null), "exports")
+        val dir = exportsDir
         dir.mkdirs()
         val fileName = "NezamMonitor_${SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())}.db"
         val file = File(dir, fileName)

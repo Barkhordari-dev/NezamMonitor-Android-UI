@@ -45,7 +45,9 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.nezammonitor.app.api.NezamApi
+import com.nezammonitor.app.ui.components.FolderBrowserDialog
 import com.nezammonitor.app.ui.components.NezamCard
+import com.nezammonitor.app.ui.screens.reportgen.DEFAULT_NEZAM_ROOT
 import com.nezammonitor.app.ui.screens.reportgen.displayShamsiDate
 import com.nezammonitor.app.ui.screens.reportgen.todayJalali
 import com.nezammonitor.app.ui.theme.nezamSemantic
@@ -97,8 +99,18 @@ fun UpdateScreen(
     var progress by remember { mutableFloatStateOf(0f) }
     var lastUpdate by remember { mutableStateOf(prefs.getString("last_update", "هنوز بروزرسانی نشده") ?: "هنوز بروزرسانی نشده") }
 
-    // Report save path
-    var reportPath by remember { mutableStateOf(prefs.getString("report_path", Environment.getExternalStorageDirectory().absolutePath) ?: Environment.getExternalStorageDirectory().absolutePath) }
+    // Report save path (v3.8.8): the base folder; downloaded server
+    // reports go into <base>/downloads/<case>… . The old default was the
+    // storage root (downloads then landed in <root>/NezamMonitor/…), so a
+    // saved root value is migrated to the new default.
+    var reportPath by remember {
+        mutableStateOf(
+            run {
+                val saved = prefs.getString("report_path", DEFAULT_NEZAM_ROOT) ?: DEFAULT_NEZAM_ROOT
+                if (saved == Environment.getExternalStorageDirectory().absolutePath) DEFAULT_NEZAM_ROOT else saved
+            }
+        )
+    }
     var downloadReports by remember { mutableStateOf(false) }
     var updateArchived by remember { mutableStateOf(prefs.getBoolean("update_archived", false)) }
     var showPathDialog by remember { mutableStateOf(false) }
@@ -224,7 +236,14 @@ fun UpdateScreen(
                     Text("مسیر فعلی:", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text(reportPath, fontSize = 14.sp, fontWeight = FontWeight.Medium)
                     Spacer(modifier = Modifier.height(4.dp))
+                    Text("گزارش‌های دانلودشده در پوشهٔ downloads زیر همین مسیر ذخیره می‌شوند.", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text("برای تغییر کلیک کنید", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
+                    if (reportPath != DEFAULT_NEZAM_ROOT) {
+                        TextButton(onClick = {
+                            reportPath = DEFAULT_NEZAM_ROOT
+                            prefs.edit().putString("report_path", DEFAULT_NEZAM_ROOT).apply()
+                        }) { Text("بازگردانی به پیش‌فرض", fontSize = 11.sp) }
+                    }
                 }
             }
 
@@ -485,7 +504,7 @@ fun UpdateScreen(
                                 val caseNum2 = "${safe(apiCase, "das_year")}/${safe(apiCase, "das_number")}"
                                 val safeOwner = owner.replace("/", "_").replace("\\", "_").replace(":", "_")
                                 val safeCase = caseNum2.replace("/", "_")
-                                val caseFolder = java.io.File(reportPath, "NezamMonitor/$caseNum" + "_${safeOwner}_$safeCase")
+                                val caseFolder = java.io.File(reportPath, "downloads/$caseNum" + "_${safeOwner}_$safeCase")
                                 caseFolder.mkdirs()
 
                                 for ((rptIdx, rpt) in rptList.withIndex()) {
@@ -580,41 +599,18 @@ fun UpdateScreen(
         }
     }
 
-    // Path selection dialog
+    // Path selection: the shared file-manager folder browser (v3.8.8) —
+    // replaces the old preset-list dialog.
     if (showPathDialog) {
-        AlertDialog(
-            onDismissRequest = { showPathDialog = false },
-            title = { Text("انتخاب مسیر ذخیره‌سازی") },
-            text = {
-                Column {
-                    Text("مسیر فعلی:", fontSize = 12.sp)
-                    Text(reportPath, fontSize = 14.sp, fontWeight = FontWeight.Medium)
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text("مسیرهای پیشنهادی:", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-
-                    val suggestions = listOf(
-                        Environment.getExternalStorageDirectory().absolutePath to "حافظه اصلی",
-                        Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS).absolutePath to "Documents",
-                        Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS).absolutePath to "Downloads",
-                        Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DCIM).absolutePath to "DCIM"
-                    )
-
-                    suggestions.forEach { (path, label) ->
-                        TextButton(onClick = {
-                            reportPath = path
-                            prefs.edit().putString("report_path", path).apply()
-                            showPathDialog = false
-                        }) {
-                            Text("$label\n$path", fontSize = 12.sp)
-                        }
-                    }
-                }
+        FolderBrowserDialog(
+            title = "مسیر ذخیرهٔ گزارش‌های دانلودشده",
+            initialPath = reportPath,
+            onPick = { picked ->
+                reportPath = picked
+                prefs.edit().putString("report_path", picked).apply()
+                showPathDialog = false
             },
-            confirmButton = {
-                TextButton(onClick = { showPathDialog = false }) {
-                    Text("بستن")
-                }
-            }
+            onDismiss = { showPathDialog = false }
         )
     }
 }

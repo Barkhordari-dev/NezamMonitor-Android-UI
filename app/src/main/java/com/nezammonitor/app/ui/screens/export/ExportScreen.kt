@@ -17,8 +17,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.nezammonitor.app.data.*
+import com.nezammonitor.app.ui.components.FolderBrowserDialog
 import com.nezammonitor.app.ui.components.NezamCard
+import com.nezammonitor.app.ui.screens.reportgen.DEFAULT_EXPORTS_PATH
 import com.nezammonitor.app.ui.screens.reportgen.gregorianToJalali
+import com.nezammonitor.app.ui.screens.reportgen.loadExportsPath
+import com.nezammonitor.app.ui.screens.reportgen.saveReportPath
 import com.nezammonitor.app.ui.screens.reportgen.toPersianDigitsStr
 import com.nezammonitor.app.ui.theme.nezamSemantic
 import com.nezammonitor.app.viewmodel.MainViewModel
@@ -47,10 +51,11 @@ fun ExportScreen(viewModel: MainViewModel, onBack: () -> Unit) {
     var statusMessage by remember { mutableStateOf("") }
     var isExporting by remember { mutableStateOf(false) }
     var isExportingDb by remember { mutableStateOf(false) }
-    // v3.8.7: the list of files already in the exports folder (survives
-    // restarts, unlike the old one-shot share buttons). Refreshed on open
-    // and after every successful creation.
-    val exportsDir = remember { File(context.getExternalFilesDir(null), "exports") }
+    // v3.8.8: exports folder is a setting (nezam_settings "exports_path",
+    // default NezamMonitor/exports on main storage) with a folder picker.
+    var exportsPath by remember { mutableStateOf(loadExportsPath(context)) }
+    var showExportsPathDialog by remember { mutableStateOf(false) }
+    val exportsDir = remember(exportsPath) { File(exportsPath) }
     var exportedFiles by remember { mutableStateOf<List<File>>(emptyList()) }
     var fileToDelete by remember { mutableStateOf<File?>(null) }
     fun refreshExportedFiles() {
@@ -59,7 +64,12 @@ fun ExportScreen(viewModel: MainViewModel, onBack: () -> Unit) {
             ?.sortedByDescending { it.lastModified() }
             ?: emptyList()
     }
-    LaunchedEffect(Unit) { refreshExportedFiles() }
+    // One-time move of files created by 3.8.6/3.8.7 (app-private folder)
+    // into the new folder, then show the list.
+    LaunchedEffect(Unit) {
+        migrateLegacyExports(context, exportsDir)
+        refreshExportedFiles()
+    }
 
     Scaffold(
         topBar = {
@@ -107,7 +117,7 @@ fun ExportScreen(viewModel: MainViewModel, onBack: () -> Unit) {
                         isExporting = true
                         statusMessage = "در حال ایجاد فایل اکسل..."
                         val result = withContext(Dispatchers.IO) {
-                            createExcelExport(context, cases, engineers, fees, reports, specs, edits)
+                            createExcelExport(exportsDir, cases, engineers, fees, reports, specs, edits)
                         }
                         if (result.first) {
                             refreshExportedFiles()
@@ -148,7 +158,7 @@ fun ExportScreen(viewModel: MainViewModel, onBack: () -> Unit) {
                         statusMessage = "در حال ایجاد فایل دیتابیس..."
                         val result = withContext(Dispatchers.IO) {
                             createWindowsDatabaseExport(
-                                context,
+                                exportsDir,
                                 cases + archivedCases,
                                 specs, engineers, fees, reports, edits, receipts
                             )
@@ -170,6 +180,41 @@ fun ExportScreen(viewModel: MainViewModel, onBack: () -> Unit) {
                     Spacer(modifier = Modifier.width(8.dp))
                 }
                 Text(if (isExportingDb) "⏳ در حال ایجاد..." else "💾 ایجاد فایل دیتابیس ویندوز", fontSize = 15.sp)
+            }
+
+            // ---- Exports folder (v3.8.8) ----
+            NezamCard(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("📂 مسیر خروجی", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(exportsPath, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("پیش‌فرض: $DEFAULT_EXPORTS_PATH", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        TextButton(onClick = { showExportsPathDialog = true }) { Text("تغییر", fontSize = 12.sp) }
+                        if (exportsPath != DEFAULT_EXPORTS_PATH) {
+                            TextButton(onClick = {
+                                saveReportPath(context, "exports_path", DEFAULT_EXPORTS_PATH)
+                                exportsPath = DEFAULT_EXPORTS_PATH
+                                refreshExportedFiles()
+                            }) { Text("بازگردانی به پیش‌فرض", fontSize = 12.sp) }
+                        }
+                    }
+                }
+            }
+
+            // Folder browser for the exports path (v3.8.8).
+            if (showExportsPathDialog) {
+                FolderBrowserDialog(
+                    title = "مسیر خروجی",
+                    initialPath = exportsPath,
+                    onPick = { picked ->
+                        saveReportPath(context, "exports_path", picked)
+                        exportsPath = picked
+                        refreshExportedFiles()
+                        showExportsPathDialog = false
+                    },
+                    onDismiss = { showExportsPathDialog = false }
+                )
             }
 
             // ---- Output files (v3.8.7): where they are, when they were
@@ -247,7 +292,7 @@ fun ExportScreen(viewModel: MainViewModel, onBack: () -> Unit) {
 // ==================== EXCEL GENERATION WITH APACHE POI ====================
 
 private fun createExcelExport(
-    context: Context,
+    exportsDir: File,
     cases: List<CaseEntity>,
     engineers: List<EngineerEntity>,
     fees: List<FeeEntity>,
@@ -256,7 +301,7 @@ private fun createExcelExport(
     edits: List<FollowUpEditEntity>
 ): Pair<Boolean, String> {
     return try {
-        val dir = File(context.getExternalFilesDir(null), "exports")
+        val dir = exportsDir
         dir.mkdirs()
         val fileName = "NezamMonitor_${SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())}.xlsx"
         val file = File(dir, fileName)
@@ -427,4 +472,32 @@ private fun formatFileSize(bytes: Long): String {
         else -> "$bytes بایت"
     }
     return toPersianDigitsStr(text).replace(".", "٫")
+}
+
+/** Moves 3.8.6/3.8.7 exports out of the old app-private folder into the
+ *  new exports folder (only when the new folder is still the default).
+ *  Best effort: a file that cannot be moved is left where it is. */
+private fun migrateLegacyExports(context: Context, newDir: File) {
+    try {
+        if (loadExportsPath(context) != DEFAULT_EXPORTS_PATH) return
+        val oldDir = File(context.getExternalFilesDir(null), "exports")
+        if (!oldDir.isDirectory) return
+        val files = oldDir.listFiles()
+            ?.filter { it.isFile && (it.name.endsWith(".xlsx") || it.name.endsWith(".db")) }
+            ?: return
+        if (files.isEmpty()) return
+        newDir.mkdirs()
+        for (f in files) {
+            val dest = File(newDir, f.name)
+            if (dest.exists()) continue
+            if (!f.renameTo(dest)) {
+                try {
+                    f.copyTo(dest, overwrite = false)
+                    f.delete()
+                } catch (_: Exception) {
+                }
+            }
+        }
+    } catch (_: Exception) {
+    }
 }

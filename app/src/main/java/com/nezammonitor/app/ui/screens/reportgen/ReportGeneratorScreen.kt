@@ -2289,6 +2289,21 @@ internal fun savePdfMaxBytes(context: Context, bytes: Long) {
 internal const val DEFAULT_TEMPLATES_PATH = "/storage/emulated/0/NezamMonitor/templates"
 internal const val DEFAULT_SIGNED_TEMPLATES_PATH = "/storage/emulated/0/NezamMonitor/templates_signed"
 internal const val DEFAULT_OUTPUTS_PATH = "/storage/emulated/0/NezamMonitor/outputs"
+/** Base folder for the Update screen's downloaded server reports:
+ *  downloads land in NezamMonitor/downloads/<case>… (v3.8.8). */
+internal const val DEFAULT_NEZAM_ROOT = "/storage/emulated/0/NezamMonitor"
+/** Folder for the Excel + database exports (v3.8.8). */
+internal const val DEFAULT_EXPORTS_PATH = "/storage/emulated/0/NezamMonitor/exports"
+
+/** The exports folder from nezam_settings (key "exports_path"). */
+internal fun loadExportsPath(context: Context): String {
+    return try {
+        context.getSharedPreferences("nezam_settings", Context.MODE_PRIVATE)
+            .getString("exports_path", DEFAULT_EXPORTS_PATH) ?: DEFAULT_EXPORTS_PATH
+    } catch (_: Exception) {
+        DEFAULT_EXPORTS_PATH
+    }
+}
 
 internal data class ReportPaths(
     val templatesPath: String = DEFAULT_TEMPLATES_PATH,
