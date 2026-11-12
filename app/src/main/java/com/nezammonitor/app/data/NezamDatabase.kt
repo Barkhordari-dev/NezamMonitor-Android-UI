@@ -69,9 +69,20 @@ abstract class NezamDatabase : RoomDatabase() {
             }
         }
 
+        // v5 adds the `archived` column (Archive menu). Room expects it with
+        // NO default value (the entity has no @ColumnInfo(defaultValue)), so
+        // a plain ALTER TABLE ... ADD COLUMN ... DEFAULT 0 leaves DEFAULT 0 in
+        // the schema and Room's migration validation then fails with
+        // "Migration didn't properly handle: cases" — the app crashes at the
+        // first database open (launch) on every update from v4. Rebuild the
+        // table with the exact schema Room expects instead; all data is kept
+        // (archived is 0 for every existing row — nobody could archive yet).
         private val MIGRATION_4_5 = object : Migration(4, 5) {
             override fun migrate(db: SupportSQLiteDatabase) {
-                try { db.execSQL("ALTER TABLE cases ADD COLUMN archived INTEGER NOT NULL DEFAULT 0") } catch (_: Exception) {}
+                db.execSQL("CREATE TABLE IF NOT EXISTS `cases_new` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `caseNumber` TEXT NOT NULL, `serial` TEXT NOT NULL, `owner` TEXT NOT NULL, `ownerMobile` TEXT NOT NULL, `responsibility` TEXT NOT NULL, `capacityDate` TEXT NOT NULL, `office` TEXT NOT NULL, `reportDate1` TEXT NOT NULL, `reportDate2` TEXT NOT NULL, `reportDate3` TEXT NOT NULL, `ownerFather` TEXT NOT NULL, `ownerNationalCode` TEXT NOT NULL, `ownerAddress` TEXT NOT NULL, `ownerZip` TEXT NOT NULL, `ownerTel` TEXT NOT NULL, `ownerBirthLoc` TEXT NOT NULL, `permitNumber` TEXT NOT NULL, `permitDate` TEXT NOT NULL, `renovationCode` TEXT NOT NULL, `address` TEXT NOT NULL, `blockNumber` TEXT NOT NULL, `landArea` TEXT NOT NULL, `municipalArea` TEXT NOT NULL, `effectiveArea` TEXT NOT NULL, `floors` TEXT NOT NULL, `units` TEXT NOT NULL, `buildingGroup` TEXT NOT NULL, `structureType` TEXT NOT NULL, `usageType` TEXT NOT NULL, `planZone` TEXT NOT NULL, `issuer` TEXT NOT NULL, `stateTitle` TEXT NOT NULL, `workType` TEXT NOT NULL, `discipline` TEXT NOT NULL, `unitTitle` TEXT NOT NULL, `orderPart` TEXT NOT NULL, `executionDate` TEXT NOT NULL, `dbId` TEXT NOT NULL, `archived` INTEGER NOT NULL)")
+                db.execSQL("INSERT INTO `cases_new` (`id`, `caseNumber`, `serial`, `owner`, `ownerMobile`, `responsibility`, `capacityDate`, `office`, `reportDate1`, `reportDate2`, `reportDate3`, `ownerFather`, `ownerNationalCode`, `ownerAddress`, `ownerZip`, `ownerTel`, `ownerBirthLoc`, `permitNumber`, `permitDate`, `renovationCode`, `address`, `blockNumber`, `landArea`, `municipalArea`, `effectiveArea`, `floors`, `units`, `buildingGroup`, `structureType`, `usageType`, `planZone`, `issuer`, `stateTitle`, `workType`, `discipline`, `unitTitle`, `orderPart`, `executionDate`, `dbId`, `archived`) SELECT `id`, `caseNumber`, `serial`, `owner`, `ownerMobile`, `responsibility`, `capacityDate`, `office`, `reportDate1`, `reportDate2`, `reportDate3`, `ownerFather`, `ownerNationalCode`, `ownerAddress`, `ownerZip`, `ownerTel`, `ownerBirthLoc`, `permitNumber`, `permitDate`, `renovationCode`, `address`, `blockNumber`, `landArea`, `municipalArea`, `effectiveArea`, `floors`, `units`, `buildingGroup`, `structureType`, `usageType`, `planZone`, `issuer`, `stateTitle`, `workType`, `discipline`, `unitTitle`, `orderPart`, `executionDate`, `dbId`, 0 FROM `cases`")
+                db.execSQL("DROP TABLE IF EXISTS `cases`")
+                db.execSQL("ALTER TABLE `cases_new` RENAME TO `cases`")
             }
         }
 
