@@ -259,11 +259,12 @@ data class StageSchedule(
 
 /** Due dates for a case's stages, from its permit issue date + the group's month table.
  *  Empty only when the permit date is missing/unparseable; an unknown group still
- *  gets a schedule with the default (الف) month table. */
-fun scheduleForCase(permitDateRaw: String, buildingGroupRaw: String, stageCount: Int, registeredStages: Set<Int>, today: JalaliDate = todayJalali()): List<StageSchedule> {
+ *  gets a schedule with the default (الف) month table. [monthsOverride] (e.g. from
+ *  the user's schedule settings) replaces the group's default table. */
+fun scheduleForCase(permitDateRaw: String, buildingGroupRaw: String, stageCount: Int, registeredStages: Set<Int>, today: JalaliDate = todayJalali(), monthsOverride: List<Int>? = null): List<StageSchedule> {
     val permit = parseAnyDate(permitDateRaw) ?: return emptyList()
     val group = normalizeGroup(buildingGroupRaw)
-    val months = stageMonthsForGroup(group).take(stageCount)
+    val months = (monthsOverride ?: stageMonthsForGroup(group)).take(stageCount)
     return months.mapIndexed { i, m ->
         StageSchedule(stage = i + 1, dueDate = permit.addMonths(m), isRegistered = (i + 1) in registeredStages)
     }

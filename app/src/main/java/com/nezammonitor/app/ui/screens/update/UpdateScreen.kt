@@ -43,6 +43,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.nezammonitor.app.api.NezamApi
 import com.nezammonitor.app.ui.components.NezamCard
+import com.nezammonitor.app.ui.screens.reportgen.displayShamsiDate
+import com.nezammonitor.app.ui.screens.reportgen.todayJalali
 import com.nezammonitor.app.ui.theme.nezamSemantic
 import com.nezammonitor.app.ui.toPersianDigits
 import com.nezammonitor.app.data.*
@@ -122,7 +124,9 @@ fun UpdateScreen(
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text("آخرین بروزرسانی", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                    Text(lastUpdate, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    // Stored as Shamsi since 3.7.5; older Gregorian values are
+                    // converted for display, so this is always Shamsi.
+                    Text(if (lastUpdate == "هنوز بروزرسانی نشده") lastUpdate else displayShamsiDate(lastUpdate), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
 
@@ -467,8 +471,9 @@ fun UpdateScreen(
                             }
                             } // end downloadReports
 
-                            // Done
-                            val now = java.text.SimpleDateFormat("yyyy/MM/dd HH:mm", java.util.Locale.getDefault()).format(java.util.Date())
+                            // Done — store the date in Shamsi (Jalali), not Gregorian.
+                            val timePart = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date())
+                            val now = "${todayJalali().format()} $timePart"
                             prefs.edit().putString("last_update", now).apply()
                             lastUpdate = now
                             statusText = "✅ بروزرسانی کامل شد!\n${cases.size} پرونده | ${allEngineers.size} مهندس | ${allFees.size} حق‌الزحمه | ${allReports.size} گزارش | $downloadedFiles فایل"

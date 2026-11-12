@@ -40,8 +40,9 @@ import java.util.*
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ReportGeneratorScreen(viewModel: MainViewModel, initialTab: Int = 0, onBack: () -> Unit, onNavigateToUpdate: () -> Unit = {}) {
+fun ReportGeneratorScreen(viewModel: MainViewModel, initialTab: Int = 0, onBack: () -> Unit, onNavigateToUpdate: () -> Unit = {}, onNavigateToSchedule: () -> Unit = {}, onNavigateToHelp: () -> Unit = {}) {
     val context = LocalContext.current
+    val scheduleConfig = remember { ScheduleConfig(context) }
     val cases by viewModel.cases.collectAsState()
     val engineers by viewModel.engineers.collectAsState()
     val fees by viewModel.fees.collectAsState()
@@ -81,13 +82,12 @@ fun ReportGeneratorScreen(viewModel: MainViewModel, initialTab: Int = 0, onBack:
         }
     }
     // Stage 4 exists only if at least one case needs it (groups ب/ج/د by discipline),
-    // using the same resolved group/discipline as the case rows below.
-    val anyFourStage = remember(cases, specs, engineers, fees, reports) {
-        cases.any { c ->
-            val spec = specs.firstOrNull { it.caseNumber == c.caseNumber }
-            val (g, d) = resolveCaseGroupDiscipline(c, spec, engineers, fees, reports)
-            stageCountForCase(g, d) == 4
-        }
+    // using the same resolved group/discipline as the case rows below and the
+    // user's schedule settings (which may override the default rule).
+    val anyFourStage = cases.any { c ->
+        val spec = specs.firstOrNull { it.caseNumber == c.caseNumber }
+        val (g, d) = resolveCaseGroupDiscipline(c, spec, engineers, fees, reports)
+        scheduleConfig.stageCount(g, d) == 4
     }
 
     var selectedStage by remember { mutableIntStateOf(0) }
@@ -180,6 +180,18 @@ fun ReportGeneratorScreen(viewModel: MainViewModel, initialTab: Int = 0, onBack:
                 }
             }
 
+            // Schedule settings + help, right under the generate button
+            item {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = onNavigateToSchedule, modifier = Modifier.weight(1f)) {
+                        Text("⏱️ تغییر زمان‌بندی", fontSize = 13.sp)
+                    }
+                    OutlinedButton(onClick = onNavigateToHelp, modifier = Modifier.weight(1f)) {
+                        Text("❓ راهنما", fontSize = 13.sp)
+                    }
+                }
+            }
+
             if (!templatesExist) {
                 item {
                     Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
@@ -204,7 +216,11 @@ fun ReportGeneratorScreen(viewModel: MainViewModel, initialTab: Int = 0, onBack:
                                     // keep only cases that actually need a 4th stage
                                     selectedCases = selectedCases.filter { cn ->
                                         val c = cases.firstOrNull { it.caseNumber == cn }
-                                        c != null && stageCountForCase(c.buildingGroup, c.discipline) >= 4
+                                        if (c == null) false else {
+                                            val spec = specs.firstOrNull { it.caseNumber == cn }
+                                            val (g, d) = resolveCaseGroupDiscipline(c, spec, engineers, fees, reports)
+                                            scheduleConfig.stageCount(g, d) >= 4
+                                        }
                                     }.toSet()
                                 }
                             },
@@ -225,9 +241,17 @@ fun ReportGeneratorScreen(viewModel: MainViewModel, initialTab: Int = 0, onBack:
                 }
             }
 
-            item { Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(checked = selectAll, onCheckedChange = { selectAll = it; selectedCases = if (it) cases.filter { c -> val spec = specs.firstOrNull { it.caseNumber == c.caseNumber }; val (g, d) = resolveCaseGroupDiscipline(c, spec, engineers, fees, reports); selectedStage == 0 || selectedStage <= stageCountForCase(g, d) }.map { c -> c.caseNumber }.toSet() else emptySet() }); Text("انتخاب همه (${cases.size})", fontSize = 14.sp) } }
+            // When stage 4 is selected, show only the rows that actually have a
+            // 4th stage, so the user chooses among those.
+            val visibleCases = if (selectedStage == 4) cases.filter { c ->
+                val spec = specs.firstOrNull { it.caseNumber == c.caseNumber }
+                val (g, d) = resolveCaseGroupDiscipline(c, spec, engineers, fees, reports)
+                scheduleConfig.stageCount(g, d) >= 4
+            } else cases
 
-            items(cases) { case ->
+            item { Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(checked = selectAll, onCheckedChange = { selectAll = it; selectedCases = if (it) visibleCases.filter { c -> val spec = specs.firstOrNull { it.caseNumber == c.caseNumber }; val (g, d) = resolveCaseGroupDiscipline(c, spec, engineers, fees, reports); selectedStage == 0 || selectedStage <= scheduleConfig.stageCount(g, d) }.map { c -> c.caseNumber }.toSet() else emptySet() }); Text("انتخاب همه (${visibleCases.size})", fontSize = 14.sp) } }
+
+            items(visibleCases) { case ->
                 val spec = specs.firstOrNull { it.caseNumber == case.caseNumber }
                 // The case row itself often lacks group/discipline/permit (the cases
                 // endpoint leaves mas_title/bg_name blank): fall back to the
@@ -235,7 +259,7 @@ fun ReportGeneratorScreen(viewModel: MainViewModel, initialTab: Int = 0, onBack:
                 // the case's engineers/fees/reports (discipline, like the case
                 // detail's engineer/fee sections).
                 val (resolvedGroupRaw, resolvedDiscipline) = resolveCaseGroupDiscipline(case, spec, engineers, fees, reports)
-                val stageCount = stageCountForCase(resolvedGroupRaw, resolvedDiscipline)
+                val stageCount = scheduleConfig.stageCount(resolvedGroupRaw, resolvedDiscipline)
                 val eligible = selectedStage == 0 || selectedStage <= stageCount
                 val groupLetter = buildingGroupLetter(resolvedGroupRaw)
                 // The permit date is the spec's "تاریخ صدور" (shown in the case detail
@@ -246,9 +270,7 @@ fun ReportGeneratorScreen(viewModel: MainViewModel, initialTab: Int = 0, onBack:
                     reports.filter { it.caseNumber == case.caseNumber && isOwnServerReport(it, userName) }
                         .mapNotNull { stageNumberFromTitle(it.stage).takeIf { n -> n > 0 } }.toSet()
                 }
-                val schedule = remember(case, spec, registeredStages) {
-                    scheduleForCase(permitRaw, resolvedGroupRaw, stageCount, registeredStages, today)
-                }
+                val schedule = scheduleForCase(permitRaw, resolvedGroupRaw, stageCount, registeredStages, today, monthsOverride = scheduleConfig.months(resolvedGroupRaw))
                 // Generation history per stage: local file (with generation date+time)
                 // and/or server report (with registration date) for this case.
                 // Server reports are filtered to the current user — a stage counts
@@ -402,7 +424,25 @@ private fun generateReports(context: Context, cases: List<CaseEntity>, allCases:
 
 private fun findTemplate(templatesDir: File, stageName: String, disciplines: List<String> = emptyList()): File? {
     if (!templatesDir.exists()) return null
-    val candidates = disciplines.map { "$it مرحله $stageName.docx" } + "مرحله $stageName.docx"
+    // Old naming: "<discipline> مرحله <ordinal>.docx" / "مرحله <ordinal>.docx".
+    // New naming: the stage number itself, "1.docx".."4.docx" (Latin or Persian digits).
+    val stageNum = when (stageName) {
+        "اول" -> 1
+        "دوم" -> 2
+        "سوم" -> 3
+        "چهارم" -> 4
+        else -> 0
+    }
+    val persianNum = when (stageNum) {
+        1 -> "۱"
+        2 -> "۲"
+        3 -> "۳"
+        4 -> "۴"
+        else -> ""
+    }
+    val candidates = disciplines.map { "$it مرحله $stageName.docx" } +
+        "مرحله $stageName.docx" +
+        (if (stageNum > 0) listOf("$stageNum.docx", "$persianNum.docx") else emptyList())
     for (p in candidates) { val f = File(templatesDir, p); if (f.exists()) return f }
     return templatesDir.listFiles { f -> f.name.endsWith(".docx") }?.firstOrNull { it.name.contains(stageName) }
 }
@@ -834,7 +874,8 @@ private fun HistoryTab(
                                 Text(if (fileExists) "✅" else "⚠️", fontSize = 16.sp)
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Column(modifier = Modifier.weight(1f)) {
-                                    Text("${toPersianChars(record.owner)} - مرحله $stageName", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                                    Text(toPersianChars(record.owner), fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                                    Text("گزارش مرحله $stageName", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     Text(record.caseNumber, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     Text("📅 ${displayShamsiDate(record.createdAt + " " + record.createdTime)}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     if (!fileExists) {
@@ -895,9 +936,13 @@ private fun HistoryTab(
                                 Text("🌐", fontSize = 16.sp)
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Column(modifier = Modifier.weight(1f)) {
-                                    Text("$title${if (stageLabel.isNotBlank()) " - $stageLabel" else ""}", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                                    if (item.owner.isNotBlank()) {
+                                        Text(toPersianChars(item.owner), fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                                        Text("$title${if (stageLabel.isNotBlank()) " - $stageLabel" else ""}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    } else {
+                                        Text("$title${if (stageLabel.isNotBlank()) " - $stageLabel" else ""}", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                                    }
                                     Text(report.caseNumber, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    if (item.owner.isNotBlank()) Text(toPersianChars(item.owner), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     Text("📅 ${displayShamsiDate(report.visitDate)}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     Text("مهندس: ${toPersianChars(report.engineer)} | رشته: ${toPersianChars(report.discipline)}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }

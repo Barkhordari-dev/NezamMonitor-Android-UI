@@ -40,6 +40,8 @@ import com.nezammonitor.app.ui.screens.settings.SettingsScreen
 import com.nezammonitor.app.ui.screens.export.ExportScreen
 import com.nezammonitor.app.ui.screens.update.UpdateScreen
 import com.nezammonitor.app.ui.screens.reportgen.ReportGeneratorScreen
+import com.nezammonitor.app.ui.screens.reportgen.ScheduleSettingsScreen
+import com.nezammonitor.app.ui.screens.reportgen.ReportHelpScreen
 import com.nezammonitor.app.viewmodel.MainViewModel
 import kotlinx.coroutines.launch
 import java.net.URLDecoder
@@ -348,7 +350,9 @@ fun NezamMonitorApp(viewModel: MainViewModel) {
                         ReportGeneratorScreen(
                             viewModel = viewModel,
                             onBack = { navController.popBackStack() },
-                            onNavigateToUpdate = { navController.navigate(Screen.Update.route) }
+                            onNavigateToUpdate = { navController.navigate(Screen.Update.route) },
+                            onNavigateToSchedule = { navController.navigate(Screen.ScheduleSettings.route) },
+                            onNavigateToHelp = { navController.navigate(Screen.ReportHelp.route) }
                         )
                     }
                     composable(Screen.ReportHistory.route) {
@@ -358,8 +362,16 @@ fun NezamMonitorApp(viewModel: MainViewModel) {
                             viewModel = viewModel,
                             initialTab = 1,
                             onBack = { navController.popBackStack() },
-                            onNavigateToUpdate = { navController.navigate(Screen.Update.route) }
+                            onNavigateToUpdate = { navController.navigate(Screen.Update.route) },
+                            onNavigateToSchedule = { navController.navigate(Screen.ScheduleSettings.route) },
+                            onNavigateToHelp = { navController.navigate(Screen.ReportHelp.route) }
                         )
+                    }
+                    composable(Screen.ScheduleSettings.route) {
+                        ScheduleSettingsScreen(onBack = { navController.popBackStack() })
+                    }
+                    composable(Screen.ReportHelp.route) {
+                        ReportHelpScreen(onBack = { navController.popBackStack() })
                     }
                     composable(Screen.Settings.route) {
                         SettingsScreen(viewModel = viewModel)

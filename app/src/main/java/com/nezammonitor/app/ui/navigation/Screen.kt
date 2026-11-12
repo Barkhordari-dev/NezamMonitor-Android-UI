@@ -25,6 +25,8 @@ sealed class Screen(val route: String, val title: String, val icon: String) {
     object Receipts : Screen("receipts", "دریافتی‌ها", "🧾")
     object ReportGenerator : Screen("report_generator", "تولید گزارش", "📊")
     object ReportHistory : Screen("report_history", "سابقه گزارش\u200Cها", "📦")
+    object ScheduleSettings : Screen("schedule_settings", "تغییر زمان\u200Cبندی", "⏱️")
+    object ReportHelp : Screen("report_help", "راهنمای تولید گزارش", "❓")
     object Settings : Screen("settings", "تنظیمات", "⚙️")
     object Import : Screen("import", "ورود اطلاعات", "📥")
     object Export : Screen("export", "خروجی اکسل", "📤")
