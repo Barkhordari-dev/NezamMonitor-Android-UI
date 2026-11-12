@@ -4,6 +4,8 @@ import android.content.Context
 import android.content.Intent
 import androidx.core.content.FileProvider
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.*
@@ -16,6 +18,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.nezammonitor.app.data.*
 import com.nezammonitor.app.ui.components.NezamCard
+import com.nezammonitor.app.ui.screens.reportgen.gregorianToJalali
+import com.nezammonitor.app.ui.screens.reportgen.toPersianDigitsStr
 import com.nezammonitor.app.ui.theme.nezamSemantic
 import com.nezammonitor.app.viewmodel.MainViewModel
 import kotlinx.coroutines.Dispatchers
@@ -42,9 +46,20 @@ fun ExportScreen(viewModel: MainViewModel, onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
     var statusMessage by remember { mutableStateOf("") }
     var isExporting by remember { mutableStateOf(false) }
-    var lastExportedFile by remember { mutableStateOf<File?>(null) }
     var isExportingDb by remember { mutableStateOf(false) }
-    var lastExportedDbFile by remember { mutableStateOf<File?>(null) }
+    // v3.8.7: the list of files already in the exports folder (survives
+    // restarts, unlike the old one-shot share buttons). Refreshed on open
+    // and after every successful creation.
+    val exportsDir = remember { File(context.getExternalFilesDir(null), "exports") }
+    var exportedFiles by remember { mutableStateOf<List<File>>(emptyList()) }
+    var fileToDelete by remember { mutableStateOf<File?>(null) }
+    fun refreshExportedFiles() {
+        exportedFiles = exportsDir.listFiles()
+            ?.filter { it.isFile && (it.name.endsWith(".xlsx") || it.name.endsWith(".db")) }
+            ?.sortedByDescending { it.lastModified() }
+            ?: emptyList()
+    }
+    LaunchedEffect(Unit) { refreshExportedFiles() }
 
     Scaffold(
         topBar = {
@@ -56,8 +71,12 @@ fun ExportScreen(viewModel: MainViewModel, onBack: () -> Unit) {
             )
         }
     ) { padding ->
+        // v3.8.7: scrollable — without this, everything below the fold
+        // (the DB share button and the status card) was cut off on phones
+        // and looked like a broken button.
         Column(
-            modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp),
+            modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp)
+                .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             NezamCard(modifier = Modifier.fillMaxWidth()) {
@@ -91,7 +110,7 @@ fun ExportScreen(viewModel: MainViewModel, onBack: () -> Unit) {
                             createExcelExport(context, cases, engineers, fees, reports, specs, edits)
                         }
                         if (result.first) {
-                            lastExportedFile = File(result.second)
+                            refreshExportedFiles()
                             statusMessage = "✅ فایل اکسل ایجاد شد"
                         } else {
                             statusMessage = "❌ ${result.second}"
@@ -107,26 +126,6 @@ fun ExportScreen(viewModel: MainViewModel, onBack: () -> Unit) {
                     Spacer(modifier = Modifier.width(8.dp))
                 }
                 Text(if (isExporting) "⏳ در حال ایجاد..." else "📊 ایجاد فایل اکسل", fontSize = 15.sp)
-            }
-
-            if (lastExportedFile != null) {
-                Button(
-                    onClick = {
-                        val file = lastExportedFile ?: return@Button
-                        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
-                        val intent = Intent(Intent.ACTION_SEND).apply {
-                            type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                            putExtra(Intent.EXTRA_STREAM, uri)
-                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                            setPackage(null)
-                        }
-                        context.startActivity(Intent.createChooser(intent, "اشتراک\u200Cگذاری فایل اکسل"))
-                    },
-                    modifier = Modifier.fillMaxWidth().height(50.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
-                ) {
-                    Text("📱 اشتراک\u200Cگذاری (بلوتوث، تلگرام، ایتا...)", fontSize = 14.sp)
-                }
             }
 
             // ---- Windows database export (v3.8.6) ----
@@ -155,7 +154,7 @@ fun ExportScreen(viewModel: MainViewModel, onBack: () -> Unit) {
                             )
                         }
                         if (result.first) {
-                            lastExportedDbFile = File(result.second)
+                            refreshExportedFiles()
                             statusMessage = "✅ فایل دیتابیس ایجاد شد"
                         } else {
                             statusMessage = "❌ ${result.second}"
@@ -173,24 +172,60 @@ fun ExportScreen(viewModel: MainViewModel, onBack: () -> Unit) {
                 Text(if (isExportingDb) "⏳ در حال ایجاد..." else "💾 ایجاد فایل دیتابیس ویندوز", fontSize = 15.sp)
             }
 
-            if (lastExportedDbFile != null) {
-                Button(
-                    onClick = {
-                        val file = lastExportedDbFile ?: return@Button
-                        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
-                        val intent = Intent(Intent.ACTION_SEND).apply {
-                            type = "application/octet-stream"
-                            putExtra(Intent.EXTRA_STREAM, uri)
-                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                            setPackage(null)
+            // ---- Output files (v3.8.7): where they are, when they were
+            // made, with share + delete for every file. ----
+            NezamCard(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("📁 فایل‌های خروجی", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        "محل ذخیره: ${exportsDir.absolutePath}",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    if (exportedFiles.isEmpty()) {
+                        Text(
+                            "هنوز فایلی ساخته نشده است.",
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    } else {
+                        exportedFiles.forEach { file ->
+                            ExportedFileRow(
+                                file = file,
+                                onShare = { shareExportedFile(context, file) },
+                                onDelete = { fileToDelete = file }
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
                         }
-                        context.startActivity(Intent.createChooser(intent, "اشتراک\u200Cگذاری فایل دیتابیس"))
-                    },
-                    modifier = Modifier.fillMaxWidth().height(50.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
-                ) {
-                    Text("📱 اشتراک\u200Cگذاری دیتابیس (بلوتوث، تلگرام، ایتا...)", fontSize = 14.sp)
+                    }
                 }
+            }
+
+            // Delete confirmation (v3.8.7).
+            val doomed = fileToDelete
+            if (doomed != null) {
+                AlertDialog(
+                    onDismissRequest = { fileToDelete = null },
+                    title = { Text("حذف فایل", fontSize = 16.sp, fontWeight = FontWeight.Bold) },
+                    text = { Text("فایل «${doomed.name}» حذف شود؟", fontSize = 14.sp) },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            val ok = try { doomed.delete() } catch (_: Exception) { false }
+                            fileToDelete = null
+                            if (ok) {
+                                refreshExportedFiles()
+                                statusMessage = "🗑️ فایل حذف شد"
+                            } else {
+                                statusMessage = "❌ حذف فایل انجام نشد"
+                            }
+                        }) { Text("حذف", color = MaterialTheme.colorScheme.error) }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { fileToDelete = null }) { Text("انصراف") }
+                    }
+                )
             }
 
             if (statusMessage.isNotBlank()) {
@@ -314,4 +349,82 @@ private fun createExcelExport(
         // NoClassDefFoundError) must show as an error message, never crash.
         Pair(false, "خطا: ${e.message}")
     }
+}
+
+// ==================== OUTPUT FILE LIST (v3.8.7) ====================
+
+/** One row in the "فایل‌های خروجی" list: name, Jalali date + time, size,
+ *  and share / delete buttons. */
+@Composable
+private fun ExportedFileRow(
+    file: File,
+    onShare: () -> Unit,
+    onDelete: () -> Unit
+) {
+    NezamCard(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Text(
+                text = if (file.name.endsWith(".xlsx")) "📊 ${file.name}" else "💾 ${file.name}",
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "📅 ${formatFileDateTime(file.lastModified())}  •  ${formatFileSize(file.length())}",
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = onShare, modifier = Modifier.weight(1f)) {
+                    Text("📱 اشتراک‌گذاری", fontSize = 13.sp)
+                }
+                OutlinedButton(onClick = onDelete, modifier = Modifier.weight(1f)) {
+                    Text("🗑️ حذف", fontSize = 13.sp, color = MaterialTheme.colorScheme.error)
+                }
+            }
+        }
+    }
+}
+
+/** Shares one exported file (Excel or database) through the system chooser. */
+private fun shareExportedFile(context: Context, file: File) {
+    val mime = if (file.name.endsWith(".xlsx")) {
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    } else {
+        "application/octet-stream"
+    }
+    val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+    val intent = Intent(Intent.ACTION_SEND).apply {
+        type = mime
+        putExtra(Intent.EXTRA_STREAM, uri)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        setPackage(null)
+    }
+    context.startActivity(Intent.createChooser(intent, "اشتراک‌گذاری ${file.name}"))
+}
+
+/** File timestamp as a Jalali date + time, e.g. "۱۴۰۵/۰۸/۲۱ — ساعت ۱۹:۲۳". */
+private fun formatFileDateTime(millis: Long): String {
+    val cal = Calendar.getInstance().apply { timeInMillis = millis }
+    val jalali = gregorianToJalali(
+        cal.get(Calendar.YEAR),
+        cal.get(Calendar.MONTH) + 1,
+        cal.get(Calendar.DAY_OF_MONTH)
+    )
+    val time = String.format(
+        Locale.US, "%02d:%02d",
+        cal.get(Calendar.HOUR_OF_DAY), cal.get(Calendar.MINUTE)
+    )
+    return "${jalali.toPersianDigits()} — ساعت ${toPersianDigitsStr(time)}"
+}
+
+/** File size in Persian digits, e.g. "۲٫۳ مگابایت" / "۱۸ کیلوبایت". */
+private fun formatFileSize(bytes: Long): String {
+    val text = when {
+        bytes >= 1024 * 1024 -> String.format(Locale.US, "%.1f مگابایت", bytes / 1024.0 / 1024.0)
+        bytes >= 1024 -> "${bytes / 1024} کیلوبایت"
+        else -> "$bytes بایت"
+    }
+    return toPersianDigitsStr(text).replace(".", "٫")
 }
