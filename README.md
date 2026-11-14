@@ -150,4 +150,3 @@ cd NezamMonitor-Android-UI
 - **توسعه‌دهنده:** مهندس برخورداری
 - **Issues:** [ایجاد مشکل](https://github.com/Barkhordari-dev/NezamMonitor-Android-UI/issues)
 
-**⚠️ برای ناظرین مکانیک طراحی شده است.**
