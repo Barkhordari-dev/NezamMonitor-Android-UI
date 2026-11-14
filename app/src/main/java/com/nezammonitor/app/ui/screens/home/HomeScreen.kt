@@ -18,6 +18,10 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -30,10 +34,15 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import com.nezammonitor.app.ui.UiCustomization
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.nezammonitor.app.R
 import com.nezammonitor.app.data.ImportEngine
+import com.nezammonitor.app.data.ImportResult
+import com.nezammonitor.app.data.PackageInspection
 import com.nezammonitor.app.ui.components.HeroActionCard
 import com.nezammonitor.app.ui.components.MenuLinkCard
 import com.nezammonitor.app.ui.components.NezamCard
@@ -74,33 +83,70 @@ fun HomeScreen(
 
     val coroutineScope = rememberCoroutineScope()
 
+    // v3.9.0: a password-protected .nzmdata asks for the password first
+    // (the manifest says whether it is encrypted); a wrong password keeps
+    // the dialog open with "رمز اشتباه است" so the user can retry.
+    var pendingImportUri by remember { mutableStateOf<Uri?>(null) }
+    var showImportPasswordDialog by remember { mutableStateOf(false) }
+    var importPassword by remember { mutableStateOf("") }
+    var importPasswordVisible by remember { mutableStateOf(false) }
+    var importPasswordError by remember { mutableStateOf("") }
+
+    fun handleImportResult(result: ImportResult) {
+        viewModel.importData(result)
+        if (result.success) {
+            coroutineScope.launch {
+                // Snapshot the imported dataset for the Changes menu.
+                val timePart = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date())
+                val now = "${com.nezammonitor.app.ui.screens.reportgen.todayJalali().format()} $timePart"
+                withContext(Dispatchers.IO) { viewModel.saveSnapshot("ایمپورت از رایانه", now) }
+            }
+        }
+    }
+
+    fun runImport(uri: Uri, password: String?, onResult: (ImportResult) -> Unit) {
+        coroutineScope.launch {
+            viewModel.setImporting(true)
+            val engine = ImportEngine(context)
+            // The Update menu's "بروزرسانی پرونده‌های بایگانی‌شده"
+            // checkbox governs the import too: when off, archived cases
+            // are left untouched.
+            val updateArchived = context.getSharedPreferences("nezam_update", Context.MODE_PRIVATE)
+                .getBoolean("update_archived", false)
+            val result = withContext(Dispatchers.IO) {
+                engine.importFromUri(uri, updateArchived, password)
+            }
+            viewModel.setImporting(false)
+            onResult(result)
+        }
+    }
+
     val importLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
         uri?.let {
             coroutineScope.launch {
-                viewModel.setImporting(true)
                 val engine = ImportEngine(context)
-                // The Update menu's "بروزرسانی پرونده‌های بایگانی‌شده"
-                // checkbox governs the import too: when off, archived cases
-                // are left untouched.
-                val updateArchived = context.getSharedPreferences("nezam_update", Context.MODE_PRIVATE)
-                    .getBoolean("update_archived", false)
-                val result = withContext(Dispatchers.IO) {
-                    engine.importFromUri(it, updateArchived)
+                when (val inspection = withContext(Dispatchers.IO) { engine.inspectPackage(it) }) {
+                    is PackageInspection.Ready -> {
+                        if (inspection.encrypted) {
+                            pendingImportUri = it
+                            importPassword = ""
+                            importPasswordError = ""
+                            showImportPasswordDialog = true
+                        } else {
+                            runImport(it, null, ::handleImportResult)
+                        }
+                    }
+                    is PackageInspection.Invalid -> {
+                        viewModel.importData(ImportResult(false, inspection.message))
+                    }
                 }
-                viewModel.importData(result)
-                if (result.success) {
-                    // Snapshot the imported dataset for the Changes menu.
-                    val timePart = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date())
-                    val now = "${com.nezammonitor.app.ui.screens.reportgen.todayJalali().format()} $timePart"
-                    withContext(Dispatchers.IO) { viewModel.saveSnapshot("ایمپورت از رایانه", now) }
-                }
-                viewModel.setImporting(false)
             }
         }
     }
 
+    Box(modifier = Modifier.fillMaxSize()) {
     LazyVerticalGrid(
         columns = GridCells.Fixed(2),
         contentPadding = PaddingValues(16.dp),
@@ -368,6 +414,101 @@ fun HomeScreen(
             )
         }
     }
+
+    // Password dialog for an encrypted .nzmdata package (v3.9.0, SEC-015).
+    if (showImportPasswordDialog) {
+        ImportPasswordDialog(
+            password = importPassword,
+            onPasswordChange = { importPassword = it; importPasswordError = "" },
+            error = importPasswordError,
+            checking = isImporting,
+            onConfirm = {
+                val uri = pendingImportUri ?: return@ImportPasswordDialog
+                runImport(uri, importPassword) { result ->
+                    if (result.wrongPassword) {
+                        importPasswordError = "رمز اشتباه است"
+                    } else {
+                        showImportPasswordDialog = false
+                        importPassword = ""
+                        importPasswordError = ""
+                        pendingImportUri = null
+                        handleImportResult(result)
+                    }
+                }
+            },
+            onDismiss = {
+                if (!isImporting) {
+                    showImportPasswordDialog = false
+                    importPassword = ""
+                    importPasswordError = ""
+                    pendingImportUri = null
+                }
+            }
+        )
+    }
+    }
+}
+
+/** Password dialog for importing an encrypted .nzmdata package: the
+ *  password is the export password the file was created with. A wrong
+ *  password keeps the dialog open so the user can retry. */
+@Composable
+private fun ImportPasswordDialog(
+    password: String,
+    onPasswordChange: (String) -> Unit,
+    error: String,
+    checking: Boolean,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    var passwordVisible by remember { mutableStateOf(false) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("ایمپورت با رمز", fontSize = 16.sp, fontWeight = FontWeight.Bold) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    "این فایل .nzmdata رمز دارد — رمز خروجی را وارد کن.",
+                    fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                OutlinedTextField(
+                    value = password,
+                    onValueChange = onPasswordChange,
+                    label = { Text("رمز عبور") },
+                    singleLine = true,
+                    visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                    trailingIcon = {
+                        IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                            Icon(
+                                imageVector = if (passwordVisible) Icons.Filled.Visibility else Icons.Filled.VisibilityOff,
+                                contentDescription = if (passwordVisible) "پنهان کردن رمز عبور" else "نمایش رمز عبور"
+                            )
+                        }
+                    },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !checking
+                )
+                if (error.isNotBlank()) {
+                    Text(error, fontSize = 12.sp, color = MaterialTheme.colorScheme.error)
+                }
+                if (checking) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("در حال بررسی...", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm, enabled = !checking) { Text("تایید") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, enabled = !checking) { Text("انصراف") }
+        }
+    )
 }
 
 @Composable

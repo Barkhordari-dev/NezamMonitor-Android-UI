@@ -35,6 +35,7 @@ import com.nezammonitor.app.ui.navigation.drawerItems
 import com.nezammonitor.app.ui.screens.reportgen.todayJalali
 import com.nezammonitor.app.viewmodel.MainViewModel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -60,7 +61,34 @@ object HiddenMenuSession {
 private const val HIDDEN_MENU_PREFS = "hidden_menu"
 private const val HIDDEN_MENU_CACHED_NAME = "cached_folder_name"
 
-enum class HiddenPasswordResult { OK, WRONG, NO_NETWORK }
+enum class HiddenPasswordResult { OK, WRONG, NO_NETWORK, LOCKED }
+
+/** SEC-009 (Windows v12.1): after failed attempts the check is delayed
+ *  (5, 15, 60 seconds) and after 5 consecutive wrong attempts the menu
+ *  locks for 5 minutes. Process memory only — like Windows' statics, a
+ *  restart clears it. */
+private object HiddenMenuLockout {
+    var failedAttempts = 0
+    var lockoutUntilMillis = 0L
+
+    fun remainingSeconds(): Long? {
+        val remaining = lockoutUntilMillis - System.currentTimeMillis()
+        return if (remaining > 0) (remaining + 999) / 1000 else null
+    }
+}
+
+/** Remaining lockout seconds, or null when the menu is not locked.
+ *  The Settings dialog reads this to show the countdown. */
+internal fun hiddenMenuLockoutRemainingSeconds(): Long? = HiddenMenuLockout.remainingSeconds()
+
+/** Comparison normalisation (Windows' NormalizeForCompare): Persian/Arabic
+ *  digits to Latin, Arabic ي/ك to Persian ی/ک, trim + collapse inner
+ *  whitespace — so a name typed with a Persian keyboard still matches.
+ *  Applied to BOTH sides (the entered text and the Drive/cached name). */
+internal fun normalizeForCompare(input: String): String =
+    toPersianChars(input.normalizeDigitsLocal())
+        .trim()
+        .replace(Regex("\\s+"), " ")
 
 /** Fetches the Drive folder page (same pattern as fetchDriveListing in
  *  ReportHelpScreen) and returns the name of the FIRST SUBFOLDER inside
@@ -97,18 +125,50 @@ private fun fetchHiddenMenuFolderName(): String? {
 /** Checks the entered password against the name of the first subfolder
  *  inside the Drive folder: fetch it live (and cache it on success); on a
  *  network failure fall back to the last cached name; with no cached name
- *  either, report NO_NETWORK. The comparison is exact and case-sensitive. */
+ *  either, report NO_NETWORK. The cached name has NO expiry (same as
+ *  Windows: the folder name does not rotate daily) — offline, the menu
+ *  still opens with the last saved name. The comparison normalises digits
+ *  and letters first (normalizeForCompare), so a name typed with a
+ *  Persian keyboard still matches. Never throws: any unexpected error
+ *  falls back to the cache, then NO_NETWORK. SEC-009: after failed
+ *  attempts the check is delayed (5, 15, 60 seconds) and after 5
+ *  consecutive wrong attempts the menu locks for 5 minutes. */
 internal suspend fun checkHiddenMenuPassword(context: Context, entered: String): HiddenPasswordResult =
     withContext(Dispatchers.IO) {
+        // SEC-009: when the temporary lock is active, do not check at all.
+        if (HiddenMenuLockout.remainingSeconds() != null) return@withContext HiddenPasswordResult.LOCKED
+
+        // SEC-009: exponential delay after failed attempts (3rd try on:
+        // 5, 15, 60 seconds).
+        if (HiddenMenuLockout.failedAttempts >= 2) {
+            val delaySeconds = when (HiddenMenuLockout.failedAttempts) {
+                2 -> 5L
+                3 -> 15L
+                else -> 60L
+            }
+            delay(delaySeconds * 1000)
+            if (HiddenMenuLockout.remainingSeconds() != null) return@withContext HiddenPasswordResult.LOCKED
+        }
+
         val prefs = context.getSharedPreferences(HIDDEN_MENU_PREFS, Context.MODE_PRIVATE)
         val cached = prefs.getString(HIDDEN_MENU_CACHED_NAME, null)
         val fetched = runCatching { fetchHiddenMenuFolderName() }.getOrNull()
-        if (fetched != null) {
+        val expected = if (fetched != null) {
             prefs.edit().putString(HIDDEN_MENU_CACHED_NAME, fetched).apply()
-            return@withContext if (entered.trim() == fetched) HiddenPasswordResult.OK else HiddenPasswordResult.WRONG
+            fetched
+        } else {
+            cached?.takeIf { it.isNotBlank() } ?: return@withContext HiddenPasswordResult.NO_NETWORK
         }
-        val fallback = cached?.takeIf { it.isNotBlank() } ?: return@withContext HiddenPasswordResult.NO_NETWORK
-        return@withContext if (entered.trim() == fallback) HiddenPasswordResult.OK else HiddenPasswordResult.WRONG
+        return@withContext if (normalizeForCompare(entered) == normalizeForCompare(expected)) {
+            HiddenMenuLockout.failedAttempts = 0
+            HiddenPasswordResult.OK
+        } else {
+            HiddenMenuLockout.failedAttempts++
+            if (HiddenMenuLockout.failedAttempts >= 5) {
+                HiddenMenuLockout.lockoutUntilMillis = System.currentTimeMillis() + 5 * 60 * 1000
+            }
+            HiddenPasswordResult.WRONG
+        }
     }
 
 // ---- Search normalisation (same rules as CasesScreen.normalizeSearchText) ----
@@ -366,7 +426,7 @@ private fun feeFields(row: FeeEntity): List<EditFieldDef> = listOf(
     EditFieldDef("endDate", "تاریخ پرداخت", FieldKind.TEXT, row.endDate),
     EditFieldDef("amount", "مبلغ", FieldKind.TEXT, row.amount),
     EditFieldDef("payStatus", "وضعیت پرداخت", FieldKind.TEXT, row.payStatus),
-    EditFieldDef("confirmStatus", "وضعیت تأیید", FieldKind.TEXT, row.confirmStatus),
+    EditFieldDef("confirmStatus", "وضعیت تایید", FieldKind.TEXT, row.confirmStatus),
     EditFieldDef("amountType", "نوع مبلغ", FieldKind.TEXT, row.amountType),
     EditFieldDef("description", "توضیحات", FieldKind.TEXT, row.description)
 )
@@ -493,7 +553,7 @@ private fun overrideFieldLabel(table: String, field: String): String {
         "fees" -> mapOf(
             "discipline" to "رشته", "serviceType" to "نوع خدمت", "stage" to "مرحله",
             "startDate" to "تاریخ شروع", "endDate" to "تاریخ پرداخت", "amount" to "مبلغ",
-            "payStatus" to "وضعیت پرداخت", "confirmStatus" to "وضعیت تأیید",
+            "payStatus" to "وضعیت پرداخت", "confirmStatus" to "وضعیت تایید",
             "amountType" to "نوع مبلغ", "description" to "توضیحات"
         )
         "reports" -> mapOf(

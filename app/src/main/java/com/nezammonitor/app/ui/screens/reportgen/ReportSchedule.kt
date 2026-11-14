@@ -130,6 +130,55 @@ fun gregorianToJalali(gy: Int, gm: Int, gd: Int): JalaliDate {
     return JalaliDate(jy, jm, jd)
 }
 
+/** Parses a follow-up edit timestamp into a canonical Jalali
+ *  "yyyy/MM/dd HH:mm" wall-clock string (minute precision — the format
+ *  both sides' SaveFollowUpEdit writes), or null when the text is missing
+ *  or unparseable. An ISO instant ("...T...Z") is converted through the
+ *  device's local time, the way Windows' ParseEditTimestamp +
+ *  ToJalaliTimestamp does; a "yyyy/MM/dd HH:mm" wall-clock with year >=
+ *  1600 is Gregorian and is converted with gregorianToJalali, with a
+ *  smaller year it already is Jalali. Canonical strings compare
+ *  lexicographically (zero-padded, fixed width). No Jalali→Gregorian
+ *  conversion is needed anywhere — and none is implemented here, after
+ *  a hand-written inverse proved off by two days in the JVM harness. */
+fun parseEditTimestamp(text: String?): String? {
+    if (text.isNullOrBlank()) return null
+    val s = text.trim()
+    if (s.contains('T') || s.endsWith("Z", ignoreCase = true)) {
+        return try {
+            val instant = java.time.Instant.parse(s)
+            val local = java.time.ZonedDateTime.ofInstant(instant, java.time.ZoneId.systemDefault())
+            val jalali = gregorianToJalali(local.year, local.monthValue, local.dayOfMonth)
+            "%04d/%02d/%02d %02d:%02d".format(jalali.year, jalali.month, jalali.day, local.hour, local.minute)
+        } catch (_: Exception) { null }
+    }
+    val m = Regex("""^(\d{4})[/-](\d{1,2})[/-](\d{1,2})[ ](\d{1,2}):(\d{1,2})(?::(\d{2}))?$""")
+        .matchEntire(s) ?: return null
+    val y = m.groupValues[1].toInt()
+    val mo = m.groupValues[2].toInt()
+    val d = m.groupValues[3].toInt()
+    val h = m.groupValues[4].toInt()
+    val mi = m.groupValues[5].toInt()
+    if (mo !in 1..12 || d !in 1..31 || h !in 0..23 || mi !in 0..59) return null
+    return if (y >= 1600) {
+        val jalali = gregorianToJalali(y, mo, d)
+        "%04d/%02d/%02d %02d:%02d".format(jalali.year, jalali.month, jalali.day, h, mi)
+    } else {
+        "%04d/%02d/%02d %02d:%02d".format(y, mo, d, h, mi)
+    }
+}
+
+/** Now as a Jalali "yyyy/MM/dd HH:mm" wall-clock — the format Windows'
+ *  SaveFollowUpEdit writes, so both sides' UpdatedAt compare directly. */
+fun nowJalaliTimestamp(): String {
+    val cal = java.util.Calendar.getInstance()
+    val time = String.format(
+        java.util.Locale.US, "%02d:%02d",
+        cal.get(java.util.Calendar.HOUR_OF_DAY), cal.get(java.util.Calendar.MINUTE)
+    )
+    return "${todayJalali().format()} $time"
+}
+
 fun toPersianDigitsStr(input: String): String = normalizeDigits(input)
     .replace("0", "۰").replace("1", "۱").replace("2", "۲").replace("3", "۳")
     .replace("4", "۴").replace("5", "۵").replace("6", "۶").replace("7", "۷")

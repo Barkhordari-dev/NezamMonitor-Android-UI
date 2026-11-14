@@ -5,17 +5,24 @@ import android.content.Intent
 import androidx.core.content.FileProvider
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.nezammonitor.app.BuildConfig
 import com.nezammonitor.app.data.*
 import com.nezammonitor.app.ui.components.FolderBrowserDialog
 import com.nezammonitor.app.ui.components.NezamCard
@@ -51,6 +58,11 @@ fun ExportScreen(viewModel: MainViewModel, onBack: () -> Unit) {
     var statusMessage by remember { mutableStateOf("") }
     var isExporting by remember { mutableStateOf(false) }
     var isExportingDb by remember { mutableStateOf(false) }
+    // v3.9.0: .nzmdata export password — session-only state, NEVER saved
+    // anywhere (no SharedPreferences, no Room). Blank = plain package.
+    var nzmPassword by remember { mutableStateOf("") }
+    var nzmPasswordVisible by remember { mutableStateOf(false) }
+    var isExportingNzm by remember { mutableStateOf(false) }
     // v3.8.8: exports folder is a setting (nezam_settings "exports_path",
     // default NezamMonitor/exports on main storage) with a folder picker.
     var exportsPath by remember { mutableStateOf(loadExportsPath(context)) }
@@ -60,7 +72,7 @@ fun ExportScreen(viewModel: MainViewModel, onBack: () -> Unit) {
     var fileToDelete by remember { mutableStateOf<File?>(null) }
     fun refreshExportedFiles() {
         exportedFiles = exportsDir.listFiles()
-            ?.filter { it.isFile && (it.name.endsWith(".xlsx") || it.name.endsWith(".db")) }
+            ?.filter { it.isFile && (it.name.endsWith(".xlsx") || it.name.endsWith(".db") || it.name.endsWith(".nzmdata")) }
             ?.sortedByDescending { it.lastModified() }
             ?: emptyList()
     }
@@ -180,6 +192,94 @@ fun ExportScreen(viewModel: MainViewModel, onBack: () -> Unit) {
                     Spacer(modifier = Modifier.width(8.dp))
                 }
                 Text(if (isExportingDb) "⏳ در حال ایجاد..." else "💾 ایجاد فایل دیتابیس ویندوز", fontSize = 15.sp)
+            }
+
+            // ---- .nzmdata export (v3.9.0): the full dataset in the Windows
+            // format (v2), importable on Windows (History → import) or on
+            // another Android phone (Home → import). ----
+            NezamCard(modifier = Modifier.fillMaxWidth(), containerColor = MaterialTheme.colorScheme.primaryContainer) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("📦 خروجی .nzmdata", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        "همهٔ داده‌ها با فرمت ویندوز (نسخهٔ ۲) — پرونده‌ها (حتی بایگانی‌شده‌ها)، مشخصات، مهندسین، حق‌الزحمه‌ها، گزارش‌ها، پیگیری‌ها و رسیدها. در ویندوز از قسمت تاریخچه واردش کن، یا در گوشی دیگر از صفحهٔ خانه گزینهٔ «ایمپورت» را بزن.",
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            // ---- Export password (v3.9.0, SEC-015): optional, like Windows.
+            // Blank = plain package; set = AES-256-GCM encrypted.
+            NezamCard(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("🔒 رمز خروجی (اختیاری)", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = nzmPassword,
+                        onValueChange = { nzmPassword = it },
+                        label = { Text("رمز عبور") },
+                        singleLine = true,
+                        visualTransformation = if (nzmPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                        trailingIcon = {
+                            IconButton(onClick = { nzmPasswordVisible = !nzmPasswordVisible }) {
+                                Icon(
+                                    imageVector = if (nzmPasswordVisible) Icons.Filled.Visibility else Icons.Filled.VisibilityOff,
+                                    contentDescription = if (nzmPasswordVisible) "پنهان کردن رمز عبور" else "نمایش رمز عبور"
+                                )
+                            }
+                        },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    if (nzmPassword.isBlank()) {
+                        Text(
+                            "⚠️ بدون رمز — هر کسی که این فایل را داشته باشد می‌تواند آن را بخواند و وارد کند.",
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    } else {
+                        Text(
+                            "🔒 فایل با رمز ساخته می‌شود — رمز را به گیرنده بده؛ بدون آن فایل باز نمی‌شود.",
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+
+            Button(
+                onClick = {
+                    scope.launch {
+                        isExportingNzm = true
+                        statusMessage = "در حال ایجاد فایل .nzmdata..."
+                        val result = withContext(Dispatchers.IO) {
+                            createNzmdataExport(
+                                exportsDir,
+                                cases + archivedCases,
+                                specs, engineers, fees, reports, edits, receipts,
+                                nzmPassword.ifBlank { null },
+                                BuildConfig.VERSION_NAME
+                            )
+                        }
+                        if (result.first) {
+                            refreshExportedFiles()
+                            statusMessage = "✅ فایل .nzmdata ایجاد شد"
+                        } else {
+                            statusMessage = "❌ ${result.second}"
+                        }
+                        isExportingNzm = false
+                    }
+                },
+                modifier = Modifier.fillMaxWidth().height(50.dp),
+                enabled = !isExportingNzm
+            ) {
+                if (isExportingNzm) {
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
+                    Spacer(modifier = Modifier.width(8.dp))
+                }
+                Text(if (isExportingNzm) "⏳ در حال ایجاد..." else "📦 ایجاد فایل .nzmdata", fontSize = 15.sp)
             }
 
             // ---- Exports folder (v3.8.8) ----
@@ -409,7 +509,11 @@ private fun ExportedFileRow(
     NezamCard(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(12.dp)) {
             Text(
-                text = if (file.name.endsWith(".xlsx")) "📊 ${file.name}" else "💾 ${file.name}",
+                text = when {
+                    file.name.endsWith(".xlsx") -> "📊 ${file.name}"
+                    file.name.endsWith(".nzmdata") -> "📦 ${file.name}"
+                    else -> "💾 ${file.name}"
+                },
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Bold
             )

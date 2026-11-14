@@ -818,7 +818,7 @@ fun feeTitle(fee: FeeEntity, allOfCase: List<FeeEntity>): String {
 
 /** Confirmation status for display: only "تایید شده" is a real status. Stored
  *  values from older imports may be bare numbers (e.g. "85") — those are not
- *  a confirmation and must not be shown as "تأیید: 85". */
+ *  a confirmation and must not be shown as "تایید: 85". */
 fun confirmStatusDisplay(fee: FeeEntity): String {
     val s = fee.confirmStatus.trim()
     return if (s == "تایید شده" || s == "1") "تایید شده" else ""

@@ -93,7 +93,7 @@ fun FeeDetailScreen(viewModel: MainViewModel, onBack: () -> Unit) {
                             Text("پرداخت:", fontSize = 13.sp); Text("%,d ریال".format(paidAmount), color = MaterialTheme.colorScheme.primary, fontSize = 13.sp)
                         }
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text("تأیید:", fontSize = 13.sp); Text("%,d ریال".format(confirmedAmount), color = MaterialTheme.colorScheme.secondary, fontSize = 13.sp)
+                            Text("تایید:", fontSize = 13.sp); Text("%,d ریال".format(confirmedAmount), color = MaterialTheme.colorScheme.secondary, fontSize = 13.sp)
                         }
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             Text("در انتظار:", fontSize = 13.sp); Text("%,d ریال".format(pendingAmount), color = MaterialTheme.colorScheme.error, fontSize = 13.sp)

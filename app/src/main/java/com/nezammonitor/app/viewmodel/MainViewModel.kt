@@ -8,6 +8,7 @@ import androidx.lifecycle.viewModelScope
 import com.nezammonitor.app.api.toPersianChars
 import com.nezammonitor.app.data.*
 import com.nezammonitor.app.ui.components.personNameKey
+import com.nezammonitor.app.ui.screens.reportgen.nowJalaliTimestamp
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
@@ -450,9 +451,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _isImporting.value = value
     }
 
+    /** Saves a follow-up edit, stamping the v2 timestamps: createdAt is
+     *  kept from the existing row (or set now for a first edit) and
+     *  updatedAt is always now — the import's last-writer-wins rule reads
+     *  these (Windows writes the same Jalali "yyyy/MM/dd HH:mm" format). */
     fun saveFollowUpEdit(edit: FollowUpEditEntity) {
         viewModelScope.launch {
-            dao.insertFollowUpEdit(edit)
+            val now = nowJalaliTimestamp()
+            val existing = dao.getFollowUpEdit(edit.caseNumber)
+            dao.insertFollowUpEdit(
+                edit.copy(
+                    createdAt = existing?.createdAt?.takeIf { it.isNotBlank() }
+                        ?: edit.createdAt.takeIf { it.isNotBlank() } ?: now,
+                    updatedAt = now
+                )
+            )
         }
     }
 }

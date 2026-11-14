@@ -413,6 +413,10 @@ fun SettingsScreen(viewModel: MainViewModel, onNavigateToHiddenSettings: () -> U
                         }
                         HiddenPasswordResult.WRONG -> hiddenPasswordError = "رمز اشتباه است"
                         HiddenPasswordResult.NO_NETWORK -> hiddenPasswordError = "دسترسی به اینترنت نیست"
+                        HiddenPasswordResult.LOCKED -> {
+                            val seconds = hiddenMenuLockoutRemainingSeconds() ?: 0
+                            hiddenPasswordError = "منو قفل است — $seconds ثانیهٔ دیگر دوباره تلاش کن"
+                        }
                     }
                 }
             },
@@ -477,7 +481,7 @@ private fun HiddenPasswordDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = onConfirm, enabled = !checking) { Text("تأیید") }
+            TextButton(onClick = onConfirm, enabled = !checking) { Text("تایید") }
         },
         dismissButton = {
             TextButton(onClick = onDismiss, enabled = !checking) { Text("انصراف") }

@@ -143,5 +143,10 @@ data class FollowUpEditEntity(
     val caseNumberEdit: String = "",
     val ownerEdit: String = "",
     val addressEdit: String = "",
-    val ownerMobileEdit: String = ""
+    val ownerMobileEdit: String = "",
+    /** v2 (Windows v12): last-writer-wins timestamps, Jalali
+     *  "yyyy/MM/dd HH:mm" — the format Windows' SaveFollowUpEdit writes,
+     *  so both sides' UpdatedAt compare directly. */
+    val createdAt: String = "",
+    val updatedAt: String = ""
 )

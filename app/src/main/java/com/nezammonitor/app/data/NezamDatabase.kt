@@ -9,7 +9,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [CaseEntity::class, SpecificationEntity::class, EngineerEntity::class, FeeEntity::class, ReportEntity::class, FollowUpEditEntity::class, FeeReceiptEntity::class, SnapshotEntity::class, HiddenOverrideEntity::class],
-    version = 8,
+    version = 9,
     exportSchema = false
 )
 abstract class NezamDatabase : RoomDatabase() {
@@ -203,6 +203,47 @@ abstract class NezamDatabase : RoomDatabase() {
             }
         }
 
+        // v9 adds createdAt/updatedAt to followup_edits (v2 follow-up
+        // timestamps, for last-writer-wins). Rebuild like MIGRATION_6_7:
+        // Room expects the new columns with NO default, and a plain
+        // ALTER ... DEFAULT '' would leave a DEFAULT in the schema and
+        // fail migration validation at the first database open (launch).
+        private val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                val table = "followup_edits"
+                val createSql = "CREATE TABLE IF NOT EXISTS `followup_edits` (`caseNumber` TEXT NOT NULL, `description` TEXT NOT NULL, `caseNumberEdit` TEXT NOT NULL, `ownerEdit` TEXT NOT NULL, `addressEdit` TEXT NOT NULL, `ownerMobileEdit` TEXT NOT NULL, `createdAt` TEXT NOT NULL, `updatedAt` TEXT NOT NULL, PRIMARY KEY(`caseNumber`))"
+                val exists = db.query(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+                    arrayOf(table)
+                ).use { c -> c.count > 0 }
+                if (!exists) {
+                    db.execSQL(createSql)
+                    return
+                }
+                val oldCols = mutableSetOf<String>()
+                db.query("PRAGMA table_info(`$table`)").use { c ->
+                    val nameIdx = c.getColumnIndex("name")
+                    while (c.moveToNext()) {
+                        oldCols.add(c.getString(nameIdx))
+                    }
+                }
+                val cols = listOf(
+                    "caseNumber" to "''", "description" to "''",
+                    "caseNumberEdit" to "''", "ownerEdit" to "''",
+                    "addressEdit" to "''", "ownerMobileEdit" to "''",
+                    "createdAt" to "''", "updatedAt" to "''"
+                )
+                val colList = cols.joinToString(", ") { "`${it.first}`" }
+                val selectParts = cols.joinToString(", ") { (name, dflt) ->
+                    if (name in oldCols) "`$name`" else "$dflt AS `$name`"
+                }
+                db.execSQL(createSql.replace("`$table`", "`${table}_rebuild`"))
+                db.execSQL("INSERT INTO `${table}_rebuild` ($colList) SELECT $selectParts FROM `$table`")
+                db.execSQL("DROP TABLE IF EXISTS `$table`")
+                db.execSQL("ALTER TABLE `${table}_rebuild` RENAME TO `$table`")
+            }
+        }
+
         fun getDatabase(context: Context): NezamDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -210,7 +251,7 @@ abstract class NezamDatabase : RoomDatabase() {
                     NezamDatabase::class.java,
                     "nezam_monitor.db"
                 )
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
                 .fallbackToDestructiveMigration()
                 .build()
                 INSTANCE = instance

@@ -1006,6 +1006,15 @@ private fun replacePlaceholders(docxFile: File, case: CaseEntity, spec: Specific
  *  and the digit handling (Persian/English digits, useLtr) are exactly
  *  as before, including the variant with a space before the closing
  *  guillemet («مالک »). */
+/** Arabic diacritics (tanwin, short vowels, shadda, sukun, superscript
+ *  alef): B Nazanin has no glyphs for them, so they show as squares in
+ *  the generated PDF. Stripped from the values filled into the Word
+ *  template only — the template's own text is untouched. The hamza
+ *  marks (U+0654/U+0655) are NOT stripped: they are parts of letters
+ *  in some words (e.g. مؤسسه). */
+private fun stripArabicDiacritics(input: String): String =
+    input.replace(Regex("[\\u064B-\\u0652\\u0670]"), "")
+
 private fun replaceInParagraph(para: org.apache.poi.xwpf.usermodel.XWPFParagraph, case: CaseEntity, spec: SpecificationEntity?, engineers: List<EngineerEntity>, persianDate: String, useLtr: Boolean, userName: String = "") {
     val runs = para.runs; if (runs.isEmpty()) return
 
@@ -1027,7 +1036,10 @@ private fun replaceInParagraph(para: org.apache.poi.xwpf.usermodel.XWPFParagraph
     val replacements = rawReplacements.mapValues { (key, value) ->
         val isNumeric = key in listOf("«شماره_پرونده»", "«شماره_پروانه»", "«تاریخ_گزارش»", "«تاریخ_صدور_پروانه»", "«کد_نوسازی»", "«تعداد_بلوک»", "«تعداد_طبقات»")
         val processed = if (isNumeric && useLtr) toEnglishDigits(reverseSlash(toAsciiDigits(value))) else if (isNumeric) toPersianDigits(value) else value
-        processed
+        // v3.9.0: Arabic diacritics render as squares with B Nazanin in
+        // the PDF — strip them from the filled values (the template's own
+        // text is untouched).
+        stripArabicDiacritics(processed)
     }
 
     // The text of each run, from its <w:t> elements only (XWPFRun.text()
