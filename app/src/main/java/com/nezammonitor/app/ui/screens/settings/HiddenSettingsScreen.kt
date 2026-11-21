@@ -24,7 +24,6 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.google.gson.Gson
-import com.nezammonitor.app.BuildConfig
 import com.nezammonitor.app.api.toPersianChars
 import com.nezammonitor.app.data.*
 import com.nezammonitor.app.ui.UiCustomization
@@ -40,8 +39,6 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.net.HttpURLConnection
-import java.net.URL
 
 /** Session-only unlock flag for the hidden settings menu. Process memory
  *  ONLY — never persisted (no SharedPreferences, no Room). When the app
@@ -51,15 +48,10 @@ object HiddenMenuSession {
     var unlocked: Boolean = false
 }
 
-/** The Drive folder whose FIRST SUBFOLDER's name is the hidden-menu
- *  password (the outer folder's own name is NOT the password). The folder
- *  id comes from BuildConfig (local.properties on the developer's machine,
- *  never in the repo); a build without it gets an empty id and the menu
- *  simply cannot fetch a password (cached name / NO_NETWORK fallback). The
- *  password itself is NEVER written anywhere in the app — it is fetched
- *  from Drive at unlock time. */
-private const val HIDDEN_MENU_PREFS = "hidden_menu"
-private const val HIDDEN_MENU_CACHED_NAME = "cached_folder_name"
+/** Fixed hidden-menu password - no Drive fetch any more. The menu unlocks
+ *  when the entered text matches this password (after
+ *  normalizeForCompare). */
+ private const val FIXED_HIDDEN_MENU_PASSWORD = "Barkhordari-dev"
 
 enum class HiddenPasswordResult { OK, WRONG, NO_NETWORK, LOCKED }
 
@@ -84,53 +76,17 @@ internal fun hiddenMenuLockoutRemainingSeconds(): Long? = HiddenMenuLockout.rema
 /** Comparison normalisation (Windows' NormalizeForCompare): Persian/Arabic
  *  digits to Latin, Arabic ي/ك to Persian ی/ک, trim + collapse inner
  *  whitespace — so a name typed with a Persian keyboard still matches.
- *  Applied to BOTH sides (the entered text and the Drive/cached name). */
+ *  Applied to BOTH sides (the entered text and the fixed password). */
 internal fun normalizeForCompare(input: String): String =
     toPersianChars(input.normalizeDigitsLocal())
         .trim()
         .replace(Regex("\\s+"), " ")
 
-/** Fetches the Drive folder page (same pattern as fetchDriveListing in
- *  ReportHelpScreen) and returns the name of the FIRST SUBFOLDER inside
- *  it — that name is the hidden-menu password. The page <title> is the
- *  OUTER folder's own name and is NOT the password. Null when the page
- *  cannot be fetched or the folder has no subfolder. */
-private fun fetchHiddenMenuFolderName(): String? {
-    val url = URL("https://drive.google.com/embeddedfolderview?id=${BuildConfig.HIDDEN_MENU_FOLDER_ID}#list")
-    val conn = (url.openConnection() as HttpURLConnection).apply {
-        setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36")
-        connectTimeout = 15000
-        readTimeout = 15000
-    }
-    val html = try {
-        conn.inputStream.bufferedReader(Charsets.UTF_8).readText()
-    } finally {
-        conn.disconnect()
-    }
-    // One entry looks like: id="entry-<id>" ... flip-entry-title">NAME<
-    // and a folder's own <a href> points at /drive/folders/<id>.
-    val entryRe = Regex("""id="entry-([A-Za-z0-9_-]+)".{0,2000}?flip-entry-title">([^<]+)<""", RegexOption.DOT_MATCHES_ALL)
-    for (m in entryRe.findAll(html)) {
-        val id = m.groupValues[1]
-        if (!m.value.contains("/drive/folders/$id")) continue
-        val name = m.groupValues[2].trim()
-            .replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
-            .replace("&quot;", "\"").replace("&#39;", "'")
-            .trim()
-        if (name.isNotBlank()) return name
-    }
-    return null
-}
 
-/** Checks the entered password against the name of the first subfolder
- *  inside the Drive folder: fetch it live (and cache it on success); on a
- *  network failure fall back to the last cached name; with no cached name
- *  either, report NO_NETWORK. The cached name has NO expiry (same as
- *  Windows: the folder name does not rotate daily) — offline, the menu
- *  still opens with the last saved name. The comparison normalises digits
- *  and letters first (normalizeForCompare), so a name typed with a
- *  Persian keyboard still matches. Never throws: any unexpected error
- *  falls back to the cache, then NO_NETWORK. SEC-009: after failed
+/** Checks the entered password against the fixed hidden-menu password
+ *  (FIXED_HIDDEN_MENU_PASSWORD). Works fully offline - no network fetch,
+ *  so NO_NETWORK can no longer occur. The comparison normalises digits
+ *  and letters first (normalizeForCompare). SEC-009: after failed
  *  attempts the check is delayed (5, 15, 60 seconds) and after 5
  *  consecutive wrong attempts the menu locks for 5 minutes. */
 internal suspend fun checkHiddenMenuPassword(context: Context, entered: String): HiddenPasswordResult =
@@ -150,15 +106,7 @@ internal suspend fun checkHiddenMenuPassword(context: Context, entered: String):
             if (HiddenMenuLockout.remainingSeconds() != null) return@withContext HiddenPasswordResult.LOCKED
         }
 
-        val prefs = context.getSharedPreferences(HIDDEN_MENU_PREFS, Context.MODE_PRIVATE)
-        val cached = prefs.getString(HIDDEN_MENU_CACHED_NAME, null)
-        val fetched = runCatching { fetchHiddenMenuFolderName() }.getOrNull()
-        val expected = if (fetched != null) {
-            prefs.edit().putString(HIDDEN_MENU_CACHED_NAME, fetched).apply()
-            fetched
-        } else {
-            cached?.takeIf { it.isNotBlank() } ?: return@withContext HiddenPasswordResult.NO_NETWORK
-        }
+        val expected = FIXED_HIDDEN_MENU_PASSWORD
         return@withContext if (normalizeForCompare(entered) == normalizeForCompare(expected)) {
             HiddenMenuLockout.failedAttempts = 0
             HiddenPasswordResult.OK
