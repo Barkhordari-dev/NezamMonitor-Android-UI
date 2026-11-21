@@ -20,6 +20,14 @@ jobs:
         with:
           cache-disabled: true
       - run: chmod +x gradlew
+      - name: Restore release keystore
+        run: |
+          if [ -n "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" ]; then
+            printf '%s' "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" | base64 -d > release.keystore
+            echo "Release keystore restored."
+          else
+            echo "No RELEASE_KEYSTORE_BASE64 secret set; building unsigned."
+          fi
       - name: Build Debug APK
         run: ./gradlew assembleDebug --stacktrace --no-daemon
       - name: Build Release APK

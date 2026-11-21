@@ -77,7 +77,21 @@ data class WizardCheckboxTable(
  *  instead of inventing rows. */
 data class WizardTemplateData(
     val checkboxTable: WizardCheckboxTable?,
-    val descriptionItems: List<String>?
+    val descriptionItems: List<String>?,
+    /** v3.11.7: the توضیحات paragraphs before the first numbered item
+     *  (title «توضیحات:» + intro) and after the last one (closing),
+     *  in order. Empty when the template has no such paragraphs. */
+    val descriptionIntro: List<String> = emptyList(),
+    val descriptionClosing: List<String> = emptyList()
+)
+
+/** The whole توضیحات section of the template, split into its three
+ *  parts: the paragraphs before the first numbered item, the numbered
+ *  items themselves, and the paragraphs after the last numbered item. */
+data class DescriptionSection(
+    val intro: List<String>,
+    val items: List<String>,
+    val closing: List<String>
 )
 
 /** The user's standard توضیحات items (verbatim, Ardakan municipality):
@@ -273,25 +287,151 @@ fun findDescriptionCell(doc: XWPFDocument): XWPFTableCell? {
 /** The numbered توضیحات items of the template, in order (empty string for
  *  an empty item). Null when the template has no توضیحات table. */
 fun parseDescriptionItems(doc: XWPFDocument): List<String>? {
+    return parseDescriptionSection(doc)?.items
+}
+
+/** The whole توضیحات section of the template, split into intro /
+ *  numbered items / closing. Blank paragraphs are skipped. Null when
+ *  the template has no توضیحات table or no numbered paragraphs. */
+fun parseDescriptionSection(doc: XWPFDocument): DescriptionSection? {
     val cell = findDescriptionCell(doc) ?: return null
-    return cell.paragraphs.mapNotNull { para ->
-        val text = para.text.trim()
-        val match = DESCRIPTION_NUMBER_REGEX.find(text) ?: return@mapNotNull null
-        text.substring(match.range.last + 1).trim()
+    val texts = cell.paragraphs.map { it.text.trim() }
+    val numbered = texts.mapIndexedNotNull { i, t ->
+        if (DESCRIPTION_NUMBER_REGEX.containsMatchIn(t)) i else null
     }
+    if (numbered.isEmpty()) return null
+    val intro = texts.subList(0, numbered.first()).filter { it.isNotBlank() }
+    val items = texts.subList(numbered.first(), numbered.last() + 1).mapNotNull { t ->
+        val match = DESCRIPTION_NUMBER_REGEX.find(t) ?: return@mapNotNull null
+        t.substring(match.range.last + 1).trim()
+    }
+    val closing = texts.subList(numbered.last() + 1, texts.size).filter { it.isNotBlank() }
+    return DescriptionSection(intro, items, closing)
+}
+
+/** Assemble the full توضیحات text the wizard's step 4 shows: intro
+ *  lines, then the items numbered ۱- … with Persian digits, then the
+ *  closing lines — one paragraph per line. */
+fun assembleDescriptionFullText(intro: List<String>, items: List<String>, closing: List<String>): String {
+    val lines = mutableListOf<String>()
+    lines += intro
+    items.forEachIndexed { i, item -> lines += "${persianDigits(i + 1)}- $item" }
+    lines += closing
+    return lines.joinToString("\n")
+}
+
+/** Parse back a full توضیحات text edited in step 4: lines before the
+ *  first numbered line are the intro, numbered lines are the items
+ *  (a non-numbered line between two numbered ones continues the
+ *  previous item), lines after the last numbered line are the closing.
+ *  Returns null when there is no numbered line at all — the caller
+ *  must then keep the previous items and show a warning instead of
+ *  losing them. */
+fun parseDescriptionFullText(text: String): DescriptionSection? {
+    val lines = text.lines().map { it.trim() }.filter { it.isNotBlank() }
+    val numbered = lines.mapIndexedNotNull { i, t ->
+        if (DESCRIPTION_NUMBER_REGEX.containsMatchIn(t)) i else null
+    }
+    if (numbered.isEmpty()) return null
+    val intro = lines.subList(0, numbered.first())
+    val items = mutableListOf<String>()
+    for (i in numbered.first()..numbered.last()) {
+        val line = lines[i]
+        val match = DESCRIPTION_NUMBER_REGEX.find(line)
+        if (match != null) {
+            items += line.substring(match.range.last + 1).trim()
+        } else if (items.isNotEmpty()) {
+            items[items.lastIndex] = "${items.last()} $line".trim()
+        }
+    }
+    val closing = lines.subList(numbered.last() + 1, lines.size)
+    return DescriptionSection(intro, items, closing)
+}
+
+/** Copy a paragraph's properties (pPr: bidi, alignment, spacing, …)
+ *  from [source] to [target]. This is the v3.11.7 RTL fix: direction
+ *  and alignment live on the paragraph, not on its runs, so copying
+ *  only the runs left every inserted paragraph LTR / left-aligned in
+ *  Word — the 3rd توضیحات row and every row after it. */
+private fun copyParagraphProperties(source: XWPFParagraph, target: XWPFParagraph) {
+    try {
+        val pPr = source.ctp.pPr ?: return
+        target.ctp.setPPr(
+            pPr.copy() as org.openxmlformats.schemas.wordprocessingml.x2006.main.CTPPr
+        )
+    } catch (_: Exception) {
+    }
+}
+
+/** Copy all runs of [source] into [target], keeping their properties. */
+private fun copyRuns(source: XWPFParagraph, target: XWPFParagraph) {
+    for (run in source.runs) {
+        val newRun = target.createRun()
+        try { newRun.ctr.set(run.ctr.copy()) } catch (_: Exception) { }
+    }
+}
+
+/** Insert a new paragraph before [anchor] (or at the end when [anchor]
+ *  is null), cloning [source]'s paragraph properties AND runs, so the
+ *  new paragraph looks — and reads, in Word — exactly like [source]. */
+private fun insertClonedParagraph(
+    cell: XWPFTableCell,
+    anchor: XWPFParagraph?,
+    source: XWPFParagraph
+): XWPFParagraph {
+    val newPara = if (anchor != null) cell.insertNewParagraph(anchor.ctp.newCursor())
+        else cell.addParagraph()
+    copyParagraphProperties(source, newPara)
+    copyRuns(source, newPara)
+    return newPara
 }
 
 /** Replace the numbered توضیحات items with [items], numbered ۱- … with
  *  Persian digits. Surplus numbered paragraphs are removed; missing ones
  *  are inserted right before the closing paragraph, cloning the last
- *  numbered paragraph's run properties. The intro («توضیحات:» + the
- *  municipality paragraph) and the closing paragraph are untouched.
+ *  numbered paragraph's paragraph properties and runs — so the 3rd,
+ *  4th, … item is RTL / right-aligned exactly like the 1st and 2nd.
+ *  When [intro] / [closing] are non-null they replace the paragraphs
+ *  before the first / after the last numbered item the same way;
+ *  when null they are left untouched (the old behaviour).
  *  Returns false when the template has no توضیحات table or no numbered
  *  paragraphs to anchor on. */
-fun applyDescriptionItems(doc: XWPFDocument, items: List<String>): Boolean {
+fun applyDescriptionItems(
+    doc: XWPFDocument,
+    items: List<String>,
+    intro: List<String>? = null,
+    closing: List<String>? = null
+): Boolean {
     val cell = findDescriptionCell(doc) ?: return false
     fun numberedIndices(): List<Int> = cell.paragraphs.mapIndexedNotNull { i, p ->
         if (DESCRIPTION_NUMBER_REGEX.containsMatchIn(p.text.trim())) i else null
+    }
+    fun introIndices(): List<Int> {
+        val n = numberedIndices()
+        return if (n.isEmpty()) emptyList() else (0 until n.first()).toList()
+    }
+    fun closingIndices(): List<Int> {
+        val n = numberedIndices()
+        return if (n.isEmpty()) emptyList() else (n.last() + 1 until cell.paragraphs.size).toList()
+    }
+    // Intro (title + municipality paragraph), when the caller supplies it.
+    if (intro != null) {
+        var idx = introIndices()
+        for (i in idx.indices.reversed()) {
+            if (i >= intro.size) cell.removeParagraph(idx[i])
+        }
+        idx = introIndices()
+        while (idx.size < intro.size) {
+            val anchor = cell.paragraphs.getOrNull(numberedIndices().firstOrNull() ?: return false)
+            val source = if (idx.isNotEmpty()) cell.paragraphs[idx.last()]
+                else cell.paragraphs[numberedIndices().first()]
+            val newPara = insertClonedParagraph(cell, anchor, source)
+            setParagraphText(newPara, intro[idx.size])
+            idx = introIndices()
+        }
+        introIndices().forEachIndexed { i, pIdx ->
+            if (i < intro.size) setParagraphText(cell.paragraphs[pIdx], intro[i])
+        }
     }
     var numbered = numberedIndices()
     if (numbered.isEmpty()) return false
@@ -301,19 +441,12 @@ fun applyDescriptionItems(doc: XWPFDocument, items: List<String>): Boolean {
     }
     numbered = numberedIndices()
     if (numbered.isEmpty()) return false
-    // Insert missing paragraphs right before the closing paragraph (the
-    // paragraph after the last numbered one), cloning the last numbered
-    // paragraph's runs so the new items look identical.
+    // Insert missing paragraphs right before the closing paragraph.
     while (numbered.size < items.size) {
         val targetIndex = numbered.size
-        val closing = cell.paragraphs.getOrNull(numbered.last() + 1)
-        val newPara = if (closing != null) cell.insertNewParagraph(closing.ctp.newCursor())
-            else cell.addParagraph()
+        val closingPara = cell.paragraphs.getOrNull(numbered.last() + 1)
         val source = cell.paragraphs[numbered.last()]
-        for (run in source.runs) {
-            val newRun = newPara.createRun()
-            try { newRun.ctr.set(run.ctr.copy()) } catch (_: Exception) { }
-        }
+        val newPara = insertClonedParagraph(cell, closingPara, source)
         setParagraphText(newPara, "${persianDigits(targetIndex + 1)}- ${items[targetIndex]}")
         numbered = numberedIndices()
     }
@@ -321,6 +454,24 @@ fun applyDescriptionItems(doc: XWPFDocument, items: List<String>): Boolean {
     numbered.forEachIndexed { i, pIdx ->
         if (i < items.size) {
             setParagraphText(cell.paragraphs[pIdx], "${persianDigits(i + 1)}- ${items[i]}")
+        }
+    }
+    // Closing paragraphs, when the caller supplies them.
+    if (closing != null) {
+        var idx = closingIndices()
+        for (i in idx.indices.reversed()) {
+            if (i >= closing.size) cell.removeParagraph(idx[i])
+        }
+        idx = closingIndices()
+        while (idx.size < closing.size) {
+            val source = if (idx.isNotEmpty()) cell.paragraphs[idx.last()]
+                else cell.paragraphs[numberedIndices().last()]
+            val newPara = insertClonedParagraph(cell, null, source)
+            setParagraphText(newPara, closing[idx.size])
+            idx = closingIndices()
+        }
+        closingIndices().forEachIndexed { i, pIdx ->
+            if (i < closing.size) setParagraphText(cell.paragraphs[pIdx], closing[i])
         }
     }
     return true
@@ -334,9 +485,12 @@ fun loadWizardTemplateData(templateFile: File): WizardTemplateData? {
     return try {
         val doc = XWPFDocument(FileInputStream(templateFile))
         val checkbox = findCheckboxTable(doc)?.second
-        val descriptions = parseDescriptionItems(doc)
+        val section = parseDescriptionSection(doc)
         doc.close()
-        WizardTemplateData(checkbox, descriptions)
+        WizardTemplateData(
+            checkbox, section?.items,
+            section?.intro ?: emptyList(), section?.closing ?: emptyList()
+        )
     } catch (_: Exception) {
         null
     }
@@ -349,15 +503,21 @@ fun loadWizardTemplateData(templateFile: File): WizardTemplateData? {
 fun applyWizardEditsToDocx(
     docxFile: File,
     selections: Map<Int, Int>,
-    descriptionItems: List<String>?
+    descriptionItems: List<String>?,
+    descriptionIntro: List<String>? = null,
+    descriptionClosing: List<String>? = null
 ): Boolean {
-    if (selections.isEmpty() && descriptionItems == null) return false
+    if (selections.isEmpty() && descriptionItems == null &&
+        descriptionIntro == null && descriptionClosing == null
+    ) return false
     return try {
         val doc = XWPFDocument(FileInputStream(docxFile))
         if (selections.isNotEmpty()) applyCheckboxSelections(doc, selections)
         if (descriptionItems != null) {
             val clean = descriptionItems.map { stripDiacritics(it) }
-            applyDescriptionItems(doc, clean)
+            val cleanIntro = descriptionIntro?.map { stripDiacritics(it) }
+            val cleanClosing = descriptionClosing?.map { stripDiacritics(it) }
+            applyDescriptionItems(doc, clean, cleanIntro, cleanClosing)
         }
         FileOutputStream(docxFile).use { doc.write(it) }
         doc.close()

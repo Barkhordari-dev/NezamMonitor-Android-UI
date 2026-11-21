@@ -757,7 +757,7 @@ internal data class GenerateResult(val files: List<File>, val message: String)
  *  template's numbered توضیحات items (null = leave them as the template
  *  has them). All three default to "no wizard edits", so the normal Word
  *  and PDF buttons behave exactly as before. */
-internal fun generateReports(context: Context, cases: List<CaseEntity>, allCases: List<CaseEntity>, engineers: List<EngineerEntity>, specs: List<SpecificationEntity>, stage: Int, useLtr: Boolean, templatesDir: File, outputsDir: File, userName: String = "", fieldOverrides: Map<String, String> = emptyMap(), checkboxSelections: Map<Int, Int> = emptyMap(), descriptionItems: List<String>? = null, fallbackTemplatesDir: File? = null): GenerateResult {
+internal fun generateReports(context: Context, cases: List<CaseEntity>, allCases: List<CaseEntity>, engineers: List<EngineerEntity>, specs: List<SpecificationEntity>, stage: Int, useLtr: Boolean, templatesDir: File, outputsDir: File, userName: String = "", fieldOverrides: Map<String, String> = emptyMap(), checkboxSelections: Map<Int, Int> = emptyMap(), descriptionItems: List<String>? = null, fallbackTemplatesDir: File? = null, descriptionIntro: List<String>? = null, descriptionClosing: List<String>? = null): GenerateResult {
     val files = mutableListOf<File>()
     val stageName = stageNameForNumber(stage)
     // Template preference: "<discipline> مرحله X.docx" for the disciplines of the
@@ -785,7 +785,9 @@ internal fun generateReports(context: Context, cases: List<CaseEntity>, allCases
                 outputsDir = outputsDir, userName = userName,
                 persianDate = persianDate, timeNow = timeNow, englishDate = englishDate,
                 fieldOverrides = fieldOverrides, checkboxSelections = checkboxSelections,
-                descriptionItems = descriptionItems
+                descriptionItems = descriptionItems,
+                descriptionIntro = descriptionIntro,
+                descriptionClosing = descriptionClosing
             )
             files.add(outputFile)
             count++
@@ -814,7 +816,9 @@ private fun generateSingleWordReport(
     englishDate: String,
     fieldOverrides: Map<String, String> = emptyMap(),
     checkboxSelections: Map<Int, Int> = emptyMap(),
-    descriptionItems: List<String>? = null
+    descriptionItems: List<String>? = null,
+    descriptionIntro: List<String>? = null,
+    descriptionClosing: List<String>? = null
 ): File {
     val stageName = stageNameForNumber(stage)
     // v3.11.3: one shared folder name (see ReportFileNames.kt) — the
@@ -833,7 +837,7 @@ private fun generateSingleWordReport(
     // the slash date (persianDate is passed unchanged below).
     val fileName = reportOutputFileName(stageName, case.owner, reportDate, ltrSuffix)
     val outputFile = File(folder, fileName)
-    if (!buildWordReportToFile(templateFile, case, spec, caseEngineers, persianDate, useLtr, userName, outputFile, fieldOverrides, checkboxSelections, descriptionItems)) {
+    if (!buildWordReportToFile(templateFile, case, spec, caseEngineers, persianDate, useLtr, userName, outputFile, fieldOverrides, checkboxSelections, descriptionItems, descriptionIntro, descriptionClosing)) {
         throw IllegalStateException("خطا در ساخت فایل Word")
     }
     saveReportHistory(context, listOf(GeneratedReportRecord(
@@ -860,12 +864,14 @@ private fun buildWordReportToFile(
     outputFile: File,
     fieldOverrides: Map<String, String> = emptyMap(),
     checkboxSelections: Map<Int, Int> = emptyMap(),
-    descriptionItems: List<String>? = null
+    descriptionItems: List<String>? = null,
+    descriptionIntro: List<String>? = null,
+    descriptionClosing: List<String>? = null
 ): Boolean {
     return try {
         templateFile.copyTo(outputFile, overwrite = true)
         replacePlaceholders(outputFile, case, spec, caseEngineers, persianDate, useLtr, userName, fieldOverrides)
-        applyWizardEditsToDocx(outputFile, checkboxSelections, descriptionItems)
+        applyWizardEditsToDocx(outputFile, checkboxSelections, descriptionItems, descriptionIntro, descriptionClosing)
         true
     } catch (_: Exception) {
         false
@@ -995,6 +1001,8 @@ internal fun generateReportPdfs(
     fieldOverrides: Map<String, String> = emptyMap(),
     checkboxSelections: Map<Int, Int> = emptyMap(),
     descriptionItems: List<String>? = null,
+    descriptionIntro: List<String>? = null,
+    descriptionClosing: List<String>? = null,
     // v3.11.2: the other templates folder (signed vs unsigned) — tried
     // when the chosen folder has no template for the stage.
     fallbackTemplatesDir: File? = null
@@ -1030,7 +1038,9 @@ internal fun generateReportPdfs(
                 outputsDir = outputsDir, userName = userName,
                 persianDate = persianDate, timeNow = timeNow, englishDate = englishDate,
                 fieldOverrides = fieldOverrides, checkboxSelections = checkboxSelections,
-                descriptionItems = descriptionItems
+                descriptionItems = descriptionItems,
+                descriptionIntro = descriptionIntro,
+                descriptionClosing = descriptionClosing
             )
             val pdfFile = File(docx.parentFile, docx.nameWithoutExtension + ".pdf")
             var pdfOk = false

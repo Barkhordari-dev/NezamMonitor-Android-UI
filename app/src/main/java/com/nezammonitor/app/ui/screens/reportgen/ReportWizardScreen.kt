@@ -57,8 +57,10 @@ import java.io.FileInputStream
 
 // ==================== STEP-BY-STEP REPORT WIZARD (v3.11.0) ====================
 // Opened from the long-press menu of a case row in the report generator.
-// Four stages: (1) template fields, (2) the template's checkbox table,
-// (3) the numbered توضیحات items, (4) output (LTR / PDF / share / generate).
+// Five stages (v3.11.7): (1) template fields, (2) the template's
+// checkbox table, (3) the numbered توضیحات items, (4) the full
+// توضیحات text as one editable block, (5) output (LTR / PDF / share
+// / generate).
 // Generation reuses generateReports / generateReportPdfs, so the produced
 // file has the same name and the same history row (with Word/PDF badges)
 // as a normal generation — the only difference is the wizard's edits.
@@ -83,7 +85,7 @@ private val WIZARD_STAGE1_FIELDS = listOf(
     "«هماهنگکننده»" to "هماهنگ‌کننده"
 )
 
-private val WIZARD_STEP_TITLES = listOf("۱. فیلدها", "۲. چک‌باکس‌ها", "۳. توضیحات", "۴. خروجی")
+private val WIZARD_STEP_TITLES = listOf("۱. فیلدها", "۲. چک‌باکس‌ها", "۳. توضیحات", "۴. متن کامل", "۵. خروجی")
 
 @Composable
 internal fun ReportWizardDialog(
@@ -196,6 +198,33 @@ internal fun ReportWizardDialog(
     var descriptionItems by remember { mutableStateOf<List<String>?>(null) }
     var selectedDescriptionRows by remember { mutableStateOf<Set<Int>>(emptySet()) }
 
+    // v3.11.7, step 4 (full text): the intro / closing paragraphs of the
+    // توضیحات section, and the full text as the user is editing it.
+    // Null intro/closing = the template has no توضیحات section at all.
+    var descriptionIntro by remember { mutableStateOf<List<String>?>(null) }
+    var descriptionClosing by remember { mutableStateOf<List<String>?>(null) }
+    var fullDescriptionText by remember { mutableStateOf<String?>(null) }
+    var fullTextError by remember { mutableStateOf("") }
+
+    /** Parse the step-4 text back into intro / items / closing. On
+     *  failure (no numbered line at all) the previous items are kept
+     *  and an error is shown instead of losing them. */
+    fun commitFullDescriptionText(): Boolean {
+        val text = fullDescriptionText ?: return true
+        val parsed = parseDescriptionFullText(text)
+        if (parsed == null) {
+            fullTextError = "⚠️ هیچ ردیف شماره‌داری در متن نیست — شماره‌ها (۱- ، ۲- ، …) را پاک نکنید."
+            return false
+        }
+        descriptionIntro = parsed.intro
+        descriptionItems = parsed.items
+        descriptionClosing = parsed.closing
+        selectedDescriptionRows = emptySet()
+        fullDescriptionText = assembleDescriptionFullText(parsed.intro, parsed.items, parsed.closing)
+        fullTextError = ""
+        return true
+    }
+
     LaunchedEffect(effectiveTemplateFile) {
         // v3.11.2: a new template means new rows and new items — the old
         // selections/items belonged to the previous template (picking
@@ -205,6 +234,10 @@ internal fun ReportWizardDialog(
         // new template.
         checkboxSelections = emptyMap()
         descriptionItems = null
+        descriptionIntro = null
+        descriptionClosing = null
+        fullDescriptionText = null
+        fullTextError = ""
         selectedDescriptionRows = emptySet()
         templateLoading = true
         templateData = withContext(Dispatchers.IO) {
@@ -215,6 +248,8 @@ internal fun ReportWizardDialog(
     LaunchedEffect(templateData) {
         if (templateData != null && descriptionItems == null) {
             descriptionItems = templateData!!.descriptionItems?.let { initialDescriptionItems(it) }
+            descriptionIntro = templateData!!.descriptionIntro
+            descriptionClosing = templateData!!.descriptionClosing
         }
     }
     var followUpStatus by remember { mutableStateOf("") }
@@ -227,7 +262,7 @@ internal fun ReportWizardDialog(
         mutableStateOf(followUpEdit?.description ?: "")
     }
 
-    // Stage 4 generation.
+    // Stage 5 generation.
     var isGenerating by remember { mutableStateOf(false) }
     var resultFiles by remember { mutableStateOf<List<File>>(emptyList()) }
     var resultMessage by remember { mutableStateOf("") }
@@ -235,6 +270,12 @@ internal fun ReportWizardDialog(
 
     fun doWizardGenerate() {
         if (isGenerating) return
+        // Step 4 may still hold uncommitted edits (the user reached step
+        // 5 only through the committed navigation, but be safe).
+        if (!commitFullDescriptionText()) {
+            resultMessage = fullTextError
+            return
+        }
         isGenerating = true
         resultMessage = ""
         resultFiles = emptyList()
@@ -253,7 +294,9 @@ internal fun ReportWizardDialog(
                             userName = userName, maxBytes = pdfMaxBytes,
                             fieldOverrides = editedFields,
                             checkboxSelections = checkboxSelections,
-                            descriptionItems = items
+                            descriptionItems = items,
+                            descriptionIntro = descriptionIntro,
+                            descriptionClosing = descriptionClosing
                         )
                     } else {
                         generateReports(
@@ -264,7 +307,9 @@ internal fun ReportWizardDialog(
                             outputsDir = outputsDir, userName = userName,
                             fieldOverrides = editedFields,
                             checkboxSelections = checkboxSelections,
-                            descriptionItems = items
+                            descriptionItems = items,
+                            descriptionIntro = descriptionIntro,
+                            descriptionClosing = descriptionClosing
                         )
                     }
                 }
@@ -326,6 +371,7 @@ internal fun ReportWizardDialog(
                 else "همهٔ موارد پیگیری قبلاً در توضیحات هست"
         } else {
             descriptionItems = items + fresh
+            fullDescriptionText = null
             followUpStatus = "✅ ${toPersianDigitsStr(fresh.size.toString())} مورد از پیگیری اضافه شد"
         }
     }
@@ -575,12 +621,14 @@ internal fun ReportWizardDialog(
                                             value = item,
                                             onValueChange = { newValue ->
                                                 descriptionItems = items.toMutableList().also { it[index] = newValue }
+                                                fullDescriptionText = null
                                             },
                                             label = { Text("ردیف ${toPersianDigitsStr((index + 1).toString())}", fontSize = 12.sp) },
                                             modifier = Modifier.weight(1f).padding(vertical = 4.dp)
                                         )
                                         TextButton(onClick = {
                                             descriptionItems = items.toMutableList().also { it.removeAt(index) }
+                                            fullDescriptionText = null
                                             selectedDescriptionRows = selectedDescriptionRows
                                                 .filter { it != index }
                                                 .map { if (it > index) it - 1 else it }.toSet()
@@ -589,6 +637,7 @@ internal fun ReportWizardDialog(
                                 }
                                 OutlinedButton(onClick = {
                                     descriptionItems = items + ""
+                                    fullDescriptionText = null
                                     followUpStatus = ""
                                 }, modifier = Modifier.fillMaxWidth()) {
                                     Text("＋ افزودن ردیف", fontSize = 13.sp)
@@ -619,6 +668,50 @@ internal fun ReportWizardDialog(
                             }
                         }
                         4 -> {
+                            // v3.11.7: full توضیحات text, editable as one
+                            // block. It is assembled from intro + numbered
+                            // items + closing; edits are parsed back into
+                            // those three parts when leaving this step
+                            // (see commitFullDescriptionText), so step 3
+                            // and the generated Word file stay in sync.
+                            if (templateLoading) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("در حال خواندن تمپلیت...", fontSize = 13.sp)
+                                }
+                            } else if (descriptionItems == null) {
+                                Text(
+                                    "در تمپلیت «${effectiveTemplateFile?.name}» بخش توضیحات نیست؛ این مرحله رد می‌شود و توضیحات تمپلیت دست‌نخورده می‌ماند.",
+                                    fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            } else {
+                                val items = descriptionItems!!
+                                Text(
+                                    "متن کامل توضیحات را همین‌جا ویرایش کنید؛ مقدمه، ردیف‌ها و جملهٔ پایانی با هم نشان داده می‌شوند. شمارهٔ ردیف‌ها (۱- ، ۲- ، …) را پاک نکنید — با رفتن به قدم بعد، شماره‌ها دوباره مرتب می‌شوند.",
+                                    fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                OutlinedTextField(
+                                    value = fullDescriptionText ?: assembleDescriptionFullText(
+                                        descriptionIntro ?: emptyList(), items,
+                                        descriptionClosing ?: emptyList()
+                                    ),
+                                    onValueChange = {
+                                        fullDescriptionText = it
+                                        fullTextError = ""
+                                    },
+                                    label = { Text("متن کامل توضیحات", fontSize = 12.sp) },
+                                    minLines = 12,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                if (fullTextError.isNotBlank()) {
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text(fullTextError, fontSize = 12.sp, color = MaterialTheme.colorScheme.error)
+                                }
+                            }
+                        }
+                        5 -> {
                             Text(
                                 "خروجی با همان مسیر تولید معمولی ساخته می‌شود؛ مقدارهای ویرایش‌شده جای مقدارهای خودکار را می‌گیرند و گزارش در سابقه می‌آید.",
                                 fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -699,14 +792,23 @@ internal fun ReportWizardDialog(
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         if (step > 1) {
                             OutlinedButton(
-                                onClick = { step-- },
+                                onClick = {
+                                    // Leaving step 4 commits its text
+                                    // first; a bad parse keeps the user
+                                    // on step 4 with the error shown.
+                                    if (step == 4 && !commitFullDescriptionText()) return@OutlinedButton
+                                    step--
+                                },
                                 enabled = !isGenerating,
                                 modifier = Modifier.weight(1f)
                             ) { Text("مرحلهٔ قبل", fontSize = 13.sp) }
                         }
-                        if (step < 4) {
+                        if (step < 5) {
                             Button(
-                                onClick = { step++ },
+                                onClick = {
+                                    if (step == 4 && !commitFullDescriptionText()) return@Button
+                                    step++
+                                },
                                 enabled = !isGenerating,
                                 modifier = Modifier.weight(1f)
                             ) { Text("مرحلهٔ بعد", fontSize = 13.sp) }
