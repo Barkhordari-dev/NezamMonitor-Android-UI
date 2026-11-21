@@ -1,7 +1,11 @@
 package com.nezammonitor.app.ui.screens.reportgen
 
+import org.apache.poi.xwpf.usermodel.ParagraphAlignment
 import org.apache.poi.xwpf.usermodel.XWPFDocument
+import org.apache.poi.xwpf.usermodel.XWPFParagraph
+import org.apache.poi.xwpf.usermodel.XWPFTableCell
 import org.junit.Assert.assertEquals
+import org.openxmlformats.schemas.wordprocessingml.x2006.main.STJc
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -449,6 +453,87 @@ class ReportWizardLogicTest {
             if (!joined.contains(old)) continue
             para.runs[0].setText(joined.replace(old, new), 0)
             for (i in 1 until para.runs.size) para.runs[i].setText("", 0)
+        }
+    }
+
+    // ---------- v3.11.7: RTL fix + editable full text (no fixture) ----------
+
+    /** A description cell like the real template: intro, two RTL
+     *  numbered paragraphs, closing — built in memory, so this test
+     *  does not need the wizard/*.docx fixtures (not in git). */
+    private fun rtlParagraph(para: XWPFParagraph, text: String) {
+        para.alignment = ParagraphAlignment.RIGHT
+        val pPr = para.ctp.pPr ?: para.ctp.addNewPPr()
+        if (pPr.bidi == null) pPr.addNewBidi()
+        (pPr.jc ?: pPr.addNewJc()).setVal(STJc.RIGHT)
+        para.createRun().setText(text)
+    }
+
+    private fun buildDescriptionDoc(): XWPFDocument {
+        val doc = XWPFDocument()
+        val cell = doc.createTable(1, 1).rows[0].tableCells[0]
+        rtlParagraph(cell.paragraphs[0], "توضیحات:")
+        rtlParagraph(cell.addParagraph(), "به استحضار شهرداری محترم اردکان می‌رساند:")
+        rtlParagraph(cell.addParagraph(), "۱- مورد اول")
+        rtlParagraph(cell.addParagraph(), "۲- مورد دوم")
+        rtlParagraph(cell.addParagraph(), "بدین‌وسیله مراتب اعلام می‌گردد.")
+        return doc
+    }
+
+    private fun XWPFTableCell.numberedParagraphs(): List<XWPFParagraph> =
+        paragraphs.filter { it.text.trim().matches(Regex("^[۰-۹0-9]+[-–—].*")) }
+
+    @Test
+    fun applyDescriptionItems_insertedRowsKeepRtl() {
+        buildDescriptionDoc().use { doc ->
+            val four = listOf("مورد اول", "مورد دوم", "مورد سوم", "مورد چهارم")
+            assertTrue(applyDescriptionItems(doc, four))
+            assertEquals(four, parseDescriptionItems(doc))
+            val cell = findDescriptionCell(doc)!!
+            val numbered = cell.numberedParagraphs()
+            assertEquals(4, numbered.size)
+            // Rows 3 and 4 are inserted, not template rows: they must
+            // carry the same paragraph properties as rows 1 and 2 —
+            // bidi set and right-aligned — or Word shows them LTR.
+            for (para in numbered) {
+                assertNotNull("bidi missing on «${para.text}»", para.ctp.pPr?.bidi)
+                assertEquals(ParagraphAlignment.RIGHT, para.alignment)
+            }
+        }
+    }
+
+    @Test
+    fun descriptionFullText_roundTrip() {
+        val intro = listOf("توضیحات:", "به استحضار شهرداری محترم اردکان می‌رساند:")
+        val items = listOf("مورد اول", "مورد دوم", "مورد سوم")
+        val closing = listOf("بدین‌وسیله مراتب اعلام می‌گردد.")
+        val full = assembleDescriptionFullText(intro, items, closing)
+        assertTrue(full.contains("۳- مورد سوم"))
+        val parsed = parseDescriptionFullText(full)
+        assertNotNull(parsed)
+        assertEquals(DescriptionSection(intro, items, closing), parsed)
+    }
+
+    @Test
+    fun parseDescriptionFullText_withoutNumbersReturnsNull() {
+        assertNull(parseDescriptionFullText("فقط یک متن بدون شماره"))
+        assertNull(parseDescriptionFullText(""))
+    }
+
+    @Test
+    fun applyDescriptionItems_writesEditedIntroAndClosing() {
+        buildDescriptionDoc().use { doc ->
+            val intro = listOf("توضیحات:", "مقدمهٔ ویرایش‌شده.")
+            val items = listOf("مورد اول", "مورد دوم", "مورد سوم")
+            val closing = listOf("پایان ویرایش‌شده.")
+            assertTrue(applyDescriptionItems(doc, items, intro, closing))
+            val section = parseDescriptionSection(doc)
+            assertNotNull(section)
+            assertEquals(DescriptionSection(intro, items, closing), section)
+            // The inserted 3rd row is RTL, like the template rows.
+            val third = findDescriptionCell(doc)!!.numberedParagraphs()[2]
+            assertNotNull(third.ctp.pPr?.bidi)
+            assertEquals(ParagraphAlignment.RIGHT, third.alignment)
         }
     }
 }

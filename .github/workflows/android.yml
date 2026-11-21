@@ -20,6 +20,16 @@ jobs:
         with:
           cache-disabled: true
       - run: chmod +x gradlew
+      # v3.11.7: signed release — the release keystore itself is NEVER
+      # committed (see app/build.gradle.kts). It arrives as the
+      # RELEASE_KEYSTORE_BASE64 Actions secret (base64 of
+      # nezam-release.keystore) and is decoded here into release.keystore
+      # at the repo root, which build.gradle.kts already picks up with
+      # alias nezamrelease / password nezam1234. When the secret is
+      # absent the build falls back to unsigned, exactly as before.
+      - name: Restore release keystore
+        if: ${{ secrets.RELEASE_KEYSTORE_BASE64 != '' }}
+        run: printf '%s' "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" | base64 -d > release.keystore
       - name: Build Debug APK
         run: ./gradlew assembleDebug --stacktrace --no-daemon
       - name: Build Release APK
