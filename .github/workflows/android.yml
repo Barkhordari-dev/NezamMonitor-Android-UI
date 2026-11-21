@@ -28,6 +28,14 @@ jobs:
           else
             echo "No RELEASE_KEYSTORE_BASE64 secret set; building unsigned."
           fi
+      - name: Restore hidden-menu folder id
+        run: |
+          if [ -n "${{ secrets.HIDDEN_MENU_FOLDER_ID }}" ]; then
+            printf 'hiddenMenuFolderId=%s\n' "${{ secrets.HIDDEN_MENU_FOLDER_ID }}" >> local.properties
+            echo "Hidden-menu folder id restored."
+          else
+            echo "No HIDDEN_MENU_FOLDER_ID secret set; hidden menu will use the cached name only."
+          fi
       - name: Build Debug APK
         run: ./gradlew assembleDebug --stacktrace --no-daemon
       - name: Build Release APK
