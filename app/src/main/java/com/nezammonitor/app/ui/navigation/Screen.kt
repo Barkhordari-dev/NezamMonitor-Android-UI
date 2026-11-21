@@ -39,6 +39,21 @@ sealed class Screen(val route: String, val title: String, val icon: String) {
     object HiddenSettings : Screen("hidden_settings", "تنظیمات مخفی", "🔒")
     object Import : Screen("import", "ورود اطلاعات", "📥")
     object Export : Screen("export", "خروجی اکسل", "📤")
+    // Yazd design-offices directory (v3.10.0, read-only since v3.11.3):
+    // detail pages ONLY — there is no directory list/search screen and
+    // no menu entry for browsing. They are opened by tapping an office
+    // number or an engineer name wherever it already appears in the
+    // existing UI. The routes carry the NAME (not the site id): the
+    // screen resolves it from the bundled snapshot's local tables and
+    // shows «یافت نشد» when the snapshot has no such office/engineer.
+    // Nothing here fetches from the site anymore.
+    object DirectoryOfficeDetail : Screen("directory_office_detail/{officeName}", "جزئیات دفتر طراحی", "🏢") {
+        fun createRoute(officeName: String) = "directory_office_detail/${URLEncoder.encode(officeName, "UTF-8")}"
+    }
+    object DirectoryEngineerProfile : Screen("directory_engineer_profile/{engineerName}", "پروفایل مهندس", "👷") {
+        fun createRoute(engineerName: String) =
+            "directory_engineer_profile/${URLEncoder.encode(engineerName, "UTF-8")}"
+    }
 }
 
 val drawerItems = listOf(

@@ -53,6 +53,9 @@ fun ReportGeneratorScreen(viewModel: MainViewModel, initialTab: Int = 0, onBack:
     val fees by viewModel.fees.collectAsState()
     val specs by viewModel.specifications.collectAsState()
     val reports by viewModel.reports.collectAsState()
+    // v3.11.0: follow-up edits, for the wizard's stage 3 (import / show /
+    // add-to-follow-up for the same case).
+    val followUpEdits by viewModel.followUpEdits.collectAsState()
     val scope = rememberCoroutineScope()
     val today = remember { todayJalali() }
     // The Home card "سابقه گزارش‌ها" opens this screen on the history tab,
@@ -105,6 +108,12 @@ fun ReportGeneratorScreen(viewModel: MainViewModel, initialTab: Int = 0, onBack:
     var showDuplicateWarning by remember { mutableStateOf(false) }
     // Long-press archive menu: which case's menu is open (null = none).
     var archiveMenuCase by remember { mutableStateOf<String?>(null) }
+    // v3.11.0: the step-by-step report wizard, opened from the long-press
+    // menu. Holds the case being edited (null = closed).
+    var wizardCase by remember { mutableStateOf<CaseEntity?>(null) }
+    // v3.11.1: the report stage the wizard works on (0 = not picked yet —
+    // the wizard asks for it as its first step instead of doing nothing).
+    var wizardStage by remember { mutableIntStateOf(0) }
     // Local generation history (SharedPreferences) — refreshed after each generation
     var localHistory by remember { mutableStateOf(loadReportHistory(context)) }
     // PDF size limit (0 = no limit, full quality). Saved in nezam_settings.
@@ -118,6 +127,9 @@ fun ReportGeneratorScreen(viewModel: MainViewModel, initialTab: Int = 0, onBack:
     var reportPaths by remember { mutableStateOf(loadReportPaths(context)) }
     var signedReport by remember { mutableStateOf(loadSignedReport(context)) }
     val templatesDir = File(if (signedReport) reportPaths.signedTemplatesPath else reportPaths.templatesPath)
+    // v3.11.2: the OTHER templates folder — findTemplate tries it when
+    // the chosen one has no match for the stage.
+    val fallbackTemplatesDir = File(if (signedReport) reportPaths.templatesPath else reportPaths.signedTemplatesPath)
     val outputsDir = File(reportPaths.outputsPath)
     val templatesExist = templatesDir.exists() && (templatesDir.listFiles()?.any { it.name.endsWith(".docx") } == true)
     // Advanced filter for the case list (same pattern as the history
@@ -243,6 +255,7 @@ fun ReportGeneratorScreen(viewModel: MainViewModel, initialTab: Int = 0, onBack:
                         stage = selectedStage,
                         useLtr = useLtr,
                         templatesDir = templatesDir,
+                        fallbackTemplatesDir = fallbackTemplatesDir,
                         outputsDir = outputsDir,
                         userName = userName
                     )
@@ -279,6 +292,7 @@ fun ReportGeneratorScreen(viewModel: MainViewModel, initialTab: Int = 0, onBack:
                         stage = selectedStage,
                         useLtr = useLtr,
                         templatesDir = templatesDir,
+                        fallbackTemplatesDir = fallbackTemplatesDir,
                         outputsDir = outputsDir,
                         userName = userName,
                         maxBytes = pdfMaxBytes
@@ -354,6 +368,67 @@ fun ReportGeneratorScreen(viewModel: MainViewModel, initialTab: Int = 0, onBack:
         )
     }
 
+    // v3.11.0: step-by-step report wizard (from the long-press menu).
+    // The template is picked exactly like the Word button picks it
+    // (discipline of this case, then generic); when it is missing the
+    // wizard shows that instead of generating.
+    val wizardTarget = wizardCase
+    if (wizardTarget != null) {
+        val wizardSpec = specs.firstOrNull { it.caseNumber == wizardTarget.caseNumber }
+        val wizardCaseEngineers = engineers.filter { it.caseNumber == wizardTarget.caseNumber }
+        val wizardDiscipline = wizardTarget.discipline.ifBlank {
+            wizardCaseEngineers.firstOrNull()?.discipline ?: ""
+        }
+        val wizardTemplate = if (wizardStage == 0) null else findTemplate(
+            templatesDir,
+            stageNameForNumber(wizardStage),
+            listOf(toPersianChars(wizardDiscipline.trim())).filter { it.isNotBlank() },
+            fallbackTemplatesDir
+        )
+        // v3.11.1: how many stages this case has, and the suggested one
+        // (the nearest stage not registered yet for this case) — the
+        // wizard shows them in its stage picker when no stage was
+        // picked on the generator screen.
+        val wizardGroupDiscipline = resolveCaseGroupDiscipline(
+            wizardTarget, wizardSpec, wizardCaseEngineers, fees, reports
+        )
+        val wizardStageCount = scheduleConfig.stageCount(
+            wizardGroupDiscipline.first, wizardGroupDiscipline.second
+        )
+        val wizardRegisteredStages = reports
+            .filter { it.caseNumber == wizardTarget.caseNumber && isOwnServerReport(it, userName) }
+            .mapNotNull { stageNumberFromTitle(it.stage).takeIf { n -> n > 0 } }.toSet()
+        val wizardSuggestedStage = (1..wizardStageCount)
+            .firstOrNull { it !in wizardRegisteredStages } ?: 0
+        ReportWizardDialog(
+            case = wizardTarget,
+            spec = wizardSpec,
+            engineers = engineers,
+            specs = specs,
+            stage = wizardStage,
+            stageCount = wizardStageCount,
+            suggestedStage = wizardSuggestedStage,
+            onStageSelected = { wizardStage = it },
+            templateFile = wizardTemplate,
+            templatesDir = templatesDir,
+            fallbackTemplatesDir = fallbackTemplatesDir,
+            outputsDir = outputsDir,
+            allCases = cases,
+            userName = userName,
+            persianDate = toPersianDate(Date()),
+            initialUseLtr = useLtr,
+            pdfMaxBytes = pdfMaxBytes,
+            followUpEdit = followUpEdits.firstOrNull { it.caseNumber == wizardTarget.caseNumber },
+            onSaveFollowUpEdit = { viewModel.saveFollowUpEdit(it) },
+            onGenerated = { result ->
+                resultFiles = result.files
+                statusText = result.message
+                localHistory = loadReportHistory(context)
+            },
+            onDismiss = { wizardCase = null; wizardStage = 0 }
+        )
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(title = { Text("تولید گزارش") }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "بازگشت") } })
@@ -390,12 +465,15 @@ fun ReportGeneratorScreen(viewModel: MainViewModel, initialTab: Int = 0, onBack:
                     onClick = {
                         if (selectedStage == 0 || selectedCases.isEmpty()) { statusText = "لطفاً مرحله و حداقل یک پرونده را انتخاب کنید"; return@Button }
                         val stageName = stageNameForNumber(selectedStage)
-                        val hasDuplicates = cases.filter { it.caseNumber in selectedCases }.any { case ->
-                            val idx = cases.indexOf(case)
-                            val rowNum = String.format("%02d", idx + 1)
-                            val reversedCase = reverseCaseNumber(case.caseNumber)
-                            val safeOwner = case.owner.replace(Regex("[/\\\\:*?\"<>|]"), "_")
-                            val folder = File(outputsDir, "$rowNum - $safeOwner - $reversedCase")
+                        // v3.11.3: the folder name comes from the same
+                        // shared helper the generation itself uses
+                        // (reportCaseFolderName) — the old code rebuilt it
+                        // with Latin digits and the index in the FULL list,
+                        // while generation uses Persian digits and the
+                        // index in the SELECTED list, so it never matched.
+                        val selected = cases.filter { it.caseNumber in selectedCases }
+                        val hasDuplicates = selected.withIndex().any { (idx, case) ->
+                            val folder = File(outputsDir, reportCaseFolderName(idx + 1, case.owner, case.caseNumber))
                             folder.exists() && folder.listFiles()?.any { it.name.contains("مرحله $stageName") } == true
                         }
                         if (hasDuplicates) showDuplicateWarning = true else doGenerate()
@@ -621,6 +699,19 @@ fun ReportGeneratorScreen(viewModel: MainViewModel, initialTab: Int = 0, onBack:
                             statusText = "✅ «${toPersianChars(case.owner)}» به بایگانی ارسال شد"
                         }
                     )
+                    // v3.11.1: step-by-step report issuance wizard. Always
+                    // opens — when no stage is picked yet, the wizard
+                    // asks for the stage as its first step. (Before, the
+                    // tap only set a status line when selectedStage == 0,
+                    // so from the user's side nothing happened at all.)
+                    DropdownMenuItem(
+                        text = { Text("📝 صدور مرحله‌ای گزارش", fontSize = 13.sp) },
+                        onClick = {
+                            archiveMenuCase = null
+                            wizardStage = selectedStage
+                            wizardCase = case
+                        }
+                    )
                 }
                 }
             }
@@ -657,9 +748,16 @@ fun ReportGeneratorScreen(viewModel: MainViewModel, initialTab: Int = 0, onBack:
 
 // ==================== GENERATION LOGIC ====================
 
-private data class GenerateResult(val files: List<File>, val message: String)
+internal data class GenerateResult(val files: List<File>, val message: String)
 
-private fun generateReports(context: Context, cases: List<CaseEntity>, allCases: List<CaseEntity>, engineers: List<EngineerEntity>, specs: List<SpecificationEntity>, stage: Int, useLtr: Boolean, templatesDir: File, outputsDir: File, userName: String = ""): GenerateResult {
+/** Wizard edits (v3.11.0): [fieldOverrides] are placeholder values the user
+ *  edited in the wizard (keyed by placeholder with guillemets — they replace
+ *  the auto values verbatim); [checkboxSelections] is row → chosen column
+ *  of the template's checkbox table; [descriptionItems] replaces the
+ *  template's numbered توضیحات items (null = leave them as the template
+ *  has them). All three default to "no wizard edits", so the normal Word
+ *  and PDF buttons behave exactly as before. */
+internal fun generateReports(context: Context, cases: List<CaseEntity>, allCases: List<CaseEntity>, engineers: List<EngineerEntity>, specs: List<SpecificationEntity>, stage: Int, useLtr: Boolean, templatesDir: File, outputsDir: File, userName: String = "", fieldOverrides: Map<String, String> = emptyMap(), checkboxSelections: Map<Int, Int> = emptyMap(), descriptionItems: List<String>? = null, fallbackTemplatesDir: File? = null): GenerateResult {
     val files = mutableListOf<File>()
     val stageName = stageNameForNumber(stage)
     // Template preference: "<discipline> مرحله X.docx" for the disciplines of the
@@ -669,7 +767,7 @@ private fun generateReports(context: Context, cases: List<CaseEntity>, allCases:
             engineers.firstOrNull { it.caseNumber == c.caseNumber }?.discipline ?: ""
         }
     }.map { toPersianChars(it.trim()) }.filter { it.isNotBlank() }.distinct()
-    val templateFile = findTemplate(templatesDir, stageName, disciplines) ?: return GenerateResult(emptyList(), "❌ فایل تمپلیت مرحله $stageName یافت نشد\nفایل‌ها را در ${templatesDir.absolutePath} قرار دهید")
+    val templateFile = findTemplate(templatesDir, stageName, disciplines, fallbackTemplatesDir) ?: return GenerateResult(emptyList(), "❌ فایل تمپلیت مرحله $stageName یافت نشد\nفایل‌ها را در ${templatesDir.absolutePath} قرار دهید")
 
     outputsDir.mkdirs()
     val now = Date()
@@ -685,7 +783,9 @@ private fun generateReports(context: Context, cases: List<CaseEntity>, allCases:
                 engineers = engineers, specs = specs, stage = stage,
                 useLtr = useLtr, templateFile = templateFile,
                 outputsDir = outputsDir, userName = userName,
-                persianDate = persianDate, timeNow = timeNow, englishDate = englishDate
+                persianDate = persianDate, timeNow = timeNow, englishDate = englishDate,
+                fieldOverrides = fieldOverrides, checkboxSelections = checkboxSelections,
+                descriptionItems = descriptionItems
             )
             files.add(outputFile)
             count++
@@ -711,23 +811,29 @@ private fun generateSingleWordReport(
     userName: String,
     persianDate: String,
     timeNow: String,
-    englishDate: String
+    englishDate: String,
+    fieldOverrides: Map<String, String> = emptyMap(),
+    checkboxSelections: Map<Int, Int> = emptyMap(),
+    descriptionItems: List<String>? = null
 ): File {
     val stageName = stageNameForNumber(stage)
-    val rowNum = String.format("%02d", index + 1)
-    val reversedCase = reverseCaseNumber(case.caseNumber)
-    val safeOwner = case.owner.replace(Regex("[/\\\\:*?\"<>|]"), "_")
-    val folderNum = toPersianDigits(rowNum)
-    val folderName = "$folderNum - $safeOwner - $reversedCase"
+    // v3.11.3: one shared folder name (see ReportFileNames.kt) — the
+    // same helper the duplicate check and the nezam_output downloads
+    // use, so all three agree on the folder.
+    val folderName = reportCaseFolderName(index + 1, case.owner, case.caseNumber)
     val folder = File(outputsDir, folderName)
     folder.mkdirs()
     val caseEngineers = engineers.filter { it.caseNumber == case.caseNumber }
     val spec = specs.firstOrNull { it.caseNumber == case.caseNumber }
     val reportDate = if (useLtr) englishDate else persianDate
     val ltrSuffix = if (useLtr) " - LTR" else ""
-    val fileName = "گزارش مرحله $stageName $safeOwner - $reportDate$ltrSuffix.docx"
+    // v3.11.3: the file NAME uses dashes, never slashes — the Persian
+    // date "1405/08/23" in the name made File.copyTo create nested
+    // folders ("… - 1405/08/23.docx"). The report CONTENT still gets
+    // the slash date (persianDate is passed unchanged below).
+    val fileName = reportOutputFileName(stageName, case.owner, reportDate, ltrSuffix)
     val outputFile = File(folder, fileName)
-    if (!buildWordReportToFile(templateFile, case, spec, caseEngineers, persianDate, useLtr, userName, outputFile)) {
+    if (!buildWordReportToFile(templateFile, case, spec, caseEngineers, persianDate, useLtr, userName, outputFile, fieldOverrides, checkboxSelections, descriptionItems)) {
         throw IllegalStateException("خطا در ساخت فایل Word")
     }
     saveReportHistory(context, listOf(GeneratedReportRecord(
@@ -740,7 +846,9 @@ private fun generateSingleWordReport(
 
 /** Copies the template to [outputFile] and fills its placeholders.
  *  Returns false when the copy fails (placeholder replacement itself
- *  never throws — it swallows its own errors, as before). */
+ *  never throws — it swallows its own errors, as before). With wizard
+ *  edits, the checkbox marks and توضیحات items are applied to the filled
+ *  file afterwards (v3.11.0); a missing table there is not an error. */
 private fun buildWordReportToFile(
     templateFile: File,
     case: CaseEntity,
@@ -749,11 +857,15 @@ private fun buildWordReportToFile(
     persianDate: String,
     useLtr: Boolean,
     userName: String,
-    outputFile: File
+    outputFile: File,
+    fieldOverrides: Map<String, String> = emptyMap(),
+    checkboxSelections: Map<Int, Int> = emptyMap(),
+    descriptionItems: List<String>? = null
 ): Boolean {
     return try {
         templateFile.copyTo(outputFile, overwrite = true)
-        replacePlaceholders(outputFile, case, spec, caseEngineers, persianDate, useLtr, userName)
+        replacePlaceholders(outputFile, case, spec, caseEngineers, persianDate, useLtr, userName, fieldOverrides)
+        applyWizardEditsToDocx(outputFile, checkboxSelections, descriptionItems)
         true
     } catch (_: Exception) {
         false
@@ -867,8 +979,9 @@ private fun buildReportPdfSections(
  *
  *  Each case is guarded on its own: one bad case no longer aborts the
  *  whole batch (that used to kill the coroutine and leave the PDF
- *  button dead with isGenerating stuck on). */
-private fun generateReportPdfs(
+ *  button dead with isGenerating stuck on). Wizard edits (v3.11.0) pass
+ *  through to generateSingleWordReport, exactly like generateReports. */
+internal fun generateReportPdfs(
     context: Context,
     cases: List<CaseEntity>,
     engineers: List<EngineerEntity>,
@@ -878,7 +991,13 @@ private fun generateReportPdfs(
     templatesDir: File,
     outputsDir: File,
     userName: String,
-    maxBytes: Long = 0L
+    maxBytes: Long = 0L,
+    fieldOverrides: Map<String, String> = emptyMap(),
+    checkboxSelections: Map<Int, Int> = emptyMap(),
+    descriptionItems: List<String>? = null,
+    // v3.11.2: the other templates folder (signed vs unsigned) — tried
+    // when the chosen folder has no template for the stage.
+    fallbackTemplatesDir: File? = null
 ): GenerateResult {
     val files = mutableListOf<File>()
     val stageName = stageNameForNumber(stage)
@@ -889,7 +1008,7 @@ private fun generateReportPdfs(
             engineers.firstOrNull { it.caseNumber == c.caseNumber }?.discipline ?: ""
         }
     }.map { toPersianChars(it.trim()) }.filter { it.isNotBlank() }.distinct()
-    val templateFile = findTemplate(templatesDir, stageName, disciplines)
+    val templateFile = findTemplate(templatesDir, stageName, disciplines, fallbackTemplatesDir)
         ?: return GenerateResult(emptyList(), "❌ فایل تمپلیت مرحله $stageName یافت نشد\nفایل‌ها را در ${templatesDir.absolutePath} قرار دهید")
     outputsDir.mkdirs()
     val now = Date()
@@ -909,7 +1028,9 @@ private fun generateReportPdfs(
                 engineers = engineers, specs = specs, stage = stage,
                 useLtr = useLtr, templateFile = templateFile,
                 outputsDir = outputsDir, userName = userName,
-                persianDate = persianDate, timeNow = timeNow, englishDate = englishDate
+                persianDate = persianDate, timeNow = timeNow, englishDate = englishDate,
+                fieldOverrides = fieldOverrides, checkboxSelections = checkboxSelections,
+                descriptionItems = descriptionItems
             )
             val pdfFile = File(docx.parentFile, docx.nameWithoutExtension + ".pdf")
             var pdfOk = false
@@ -953,8 +1074,25 @@ private fun generateReportPdfs(
     return GenerateResult(files, message)
 }
 
-private fun findTemplate(templatesDir: File, stageName: String, disciplines: List<String> = emptyList()): File? {
-    if (!templatesDir.exists()) return null
+/** Find the template file for a stage. v3.11.2: forgiving — the stage
+ *  number may sit ANYWHERE in the file name («template1.docx»,
+ *  «مرحله 1.docx», «1 - گزارش.docx»), the extension is matched
+ *  case-insensitively (.docx/.DOCX), and when the chosen folder has no
+ *  match the OTHER templates folder (signed vs unsigned) is tried too.
+ *  Nothing about the template's CONTENT is guessed here — the checkbox
+ *  rows and توضیحات items always come from the file itself.
+ *
+ *  Order: the main folder first (exact names, then a loose match),
+ *  then the fallback folder the same way — a file in the chosen
+ *  folder always wins over one in the fallback folder. The loose match
+ *  is a digit-RUN equal to the stage number (so «template12.docx» does
+ *  NOT match stage 1) or the ordinal word («اول» …). */
+internal fun findTemplate(
+    templatesDir: File,
+    stageName: String,
+    disciplines: List<String> = emptyList(),
+    fallbackDir: File? = null
+): File? {
     // Old naming: "<discipline> مرحله <ordinal>.docx" / "مرحله <ordinal>.docx".
     // New naming: the stage number itself, "1.docx".."4.docx" (Latin or Persian digits).
     val stageNum = when (stageName) {
@@ -974,15 +1112,48 @@ private fun findTemplate(templatesDir: File, stageName: String, disciplines: Lis
     val candidates = disciplines.map { "$it مرحله $stageName.docx" } +
         "مرحله $stageName.docx" +
         (if (stageNum > 0) listOf("$stageNum.docx", "$persianNum.docx") else emptyList())
-    for (p in candidates) { val f = File(templatesDir, p); if (f.exists()) return f }
-    return templatesDir.listFiles { f -> f.name.endsWith(".docx") }?.firstOrNull { it.name.contains(stageName) }
+    val dirs = listOfNotNull(templatesDir, fallbackDir)
+    for (dir in dirs) {
+        if (!dir.exists()) continue
+        for (p in candidates) { val f = File(dir, p); if (f.exists()) return f }
+        findTemplateLoose(dir, stageName, stageNum)?.let { return it }
+    }
+    return null
 }
 
-private fun replacePlaceholders(docxFile: File, case: CaseEntity, spec: SpecificationEntity?, engineers: List<EngineerEntity>, persianDate: String, useLtr: Boolean, userName: String = "") {
+/** The loose match for one folder: a .docx file (any extension case)
+ *  whose name carries the stage number as a whole digit-run («1» in
+ *  «template1», «مرحله 1», «1 - گزارش» — but NOT the «1» inside «12»),
+ *  or the ordinal word («اول» …). Persian/Arabic digits are normalized
+ *  to Latin first. */
+private fun findTemplateLoose(dir: File, stageName: String, stageNum: Int): File? {
+    if (!dir.exists() || stageNum <= 0) return null
+    val files = dir.listFiles { f -> f.isFile && f.name.lowercase().endsWith(".docx") }
+        ?: return null
+    fun normalizedDigits(s: String): String {
+        val out = StringBuilder()
+        for (ch in s) {
+            out.append(when (ch) {
+                in '۰'..'۹' -> '0' + (ch - '۰')
+                in '٠'..'٩' -> '0' + (ch - '٠')
+                else -> ch
+            })
+        }
+        return out.toString()
+    }
+    for (f in files.sortedBy { it.name.lowercase() }) {
+        val name = normalizedDigits(f.name.lowercase())
+        if (Regex("\\d+").findAll(name).any { it.value.toIntOrNull() == stageNum }) return f
+        if (name.contains(stageName)) return f
+    }
+    return null
+}
+
+private fun replacePlaceholders(docxFile: File, case: CaseEntity, spec: SpecificationEntity?, engineers: List<EngineerEntity>, persianDate: String, useLtr: Boolean, userName: String = "", fieldOverrides: Map<String, String> = emptyMap()) {
     try {
         val doc = XWPFDocument(FileInputStream(docxFile))
-        for (para in doc.paragraphs) replaceInParagraph(para, case, spec, engineers, persianDate, useLtr, userName)
-        for (table in doc.tables) for (row in table.rows) for (cell in row.tableCells) for (para in cell.paragraphs) replaceInParagraph(para, case, spec, engineers, persianDate, useLtr, userName)
+        for (para in doc.paragraphs) replaceInParagraph(para, case, spec, engineers, persianDate, useLtr, userName, fieldOverrides)
+        for (table in doc.tables) for (row in table.rows) for (cell in row.tableCells) for (para in cell.paragraphs) replaceInParagraph(para, case, spec, engineers, persianDate, useLtr, userName, fieldOverrides)
         FileOutputStream(docxFile).use { doc.write(it) }; doc.close()
     } catch (_: Exception) {}
 }
@@ -1015,9 +1186,11 @@ private fun replacePlaceholders(docxFile: File, case: CaseEntity, spec: Specific
 private fun stripArabicDiacritics(input: String): String =
     input.replace(Regex("[\\u064B-\\u0652\\u0670]"), "")
 
-private fun replaceInParagraph(para: org.apache.poi.xwpf.usermodel.XWPFParagraph, case: CaseEntity, spec: SpecificationEntity?, engineers: List<EngineerEntity>, persianDate: String, useLtr: Boolean, userName: String = "") {
-    val runs = para.runs; if (runs.isEmpty()) return
-
+/** The auto values of every template placeholder, after digit handling
+ *  (Persian/English digits, useLtr) and diacritics stripping. Extracted
+ *  from replaceInParagraph (v3.11.0) so the report wizard can show the
+ *  same values for editing; the generation path itself is unchanged. */
+internal fun reportFieldValues(case: CaseEntity, spec: SpecificationEntity?, engineers: List<EngineerEntity>, persianDate: String, useLtr: Boolean, userName: String = ""): Map<String, String> {
     val rawReplacements = mapOf(
         "«کد_نوسازی»" to (spec?.renovationCode ?: ""), "«تاریخ_گزارش»" to persianDate,
         "«شماره_پرونده»" to case.caseNumber, "«عنوان_بلوک»" to (spec?.blockTitle ?: ""),
@@ -1032,14 +1205,29 @@ private fun replaceInParagraph(para: org.apache.poi.xwpf.usermodel.XWPFParagraph
         "«ناظر_مکانیک»" to (engineers.firstOrNull { it.discipline.contains("مکانیک") || it.discipline.contains("مكانيك") }?.name ?: ""),
         "«ناظر_برق»" to (engineers.firstOrNull { it.discipline.contains("برق") }?.name ?: "")
     )
-
-    val replacements = rawReplacements.mapValues { (key, value) ->
+    return rawReplacements.mapValues { (key, value) ->
         val isNumeric = key in listOf("«شماره_پرونده»", "«شماره_پروانه»", "«تاریخ_گزارش»", "«تاریخ_صدور_پروانه»", "«کد_نوسازی»", "«تعداد_بلوک»", "«تعداد_طبقات»")
         val processed = if (isNumeric && useLtr) toEnglishDigits(reverseSlash(toAsciiDigits(value))) else if (isNumeric) toPersianDigits(value) else value
         // v3.9.0: Arabic diacritics render as squares with B Nazanin in
         // the PDF — strip them from the filled values (the template's own
-        // text is untouched).
-        stripArabicDiacritics(processed)
+        // text is untouched). v3.11.1: the API returns names in Arabic
+        // script (ي/ك), so convert every filled value to Persian script
+        // too — «نام ناظر» was the only one converted before, which is
+        // why the wizard's stage 1 showed Arabic letters.
+        toPersianChars(stripArabicDiacritics(processed))
+    }
+}
+
+internal fun replaceInParagraph(para: org.apache.poi.xwpf.usermodel.XWPFParagraph, case: CaseEntity, spec: SpecificationEntity?, engineers: List<EngineerEntity>, persianDate: String, useLtr: Boolean, userName: String = "", overrides: Map<String, String> = emptyMap()) {
+    val runs = para.runs; if (runs.isEmpty()) return
+
+    // Wizard-edited values (v3.11.0) replace the auto values verbatim
+    // (diacritics stripped and Arabic script converted to Persian, like
+    // every filled value — v3.11.1); unedited keys keep the auto value.
+    // An override for an unknown key is ignored.
+    val replacements = reportFieldValues(case, spec, engineers, persianDate, useLtr, userName).toMutableMap()
+    for ((key, value) in overrides) {
+        if (key in replacements) replacements[key] = toPersianChars(stripArabicDiacritics(value))
     }
 
     // The text of each run, from its <w:t> elements only (XWPFRun.text()
@@ -1054,9 +1242,14 @@ private fun replaceInParagraph(para: org.apache.poi.xwpf.usermodel.XWPFParagraph
     var changed = false
 
     for ((key, value) in replacements) {
-        // Both variants the old code handled: the key itself, and the key
-        // with a space before the closing guillemet.
-        for (needle in listOf(key, key.replace("»", " »"))) {
+        // The variants the old code handled: the key itself, and the key
+        // with a space before the closing guillemet. v3.11.1: the key
+        // with ASCII double quotes too — template 4 (and the older
+        // 2.docx copy) writes "نام ناظر" with "…" instead of «…», and
+        // without this variant the engineer name was never substituted
+        // there at all (found by the harness on the real templates).
+        val asciiQuoted = "\"" + key.removePrefix("«").removeSuffix("»") + "\""
+        for (needle in listOf(key, key.replace("»", " »"), asciiQuoted)) {
             if (needle.isEmpty()) continue
             // All non-overlapping occurrences in the current text, then
             // apply them right-to-left so earlier offsets stay valid.
@@ -1354,18 +1547,16 @@ private fun HistoryTab(
     val serverCount = items.count { it is HistoryItem.Server }
     val localCount = items.count { it is HistoryItem.Local }
 
-    // Download a server report's file into the cache; null on failure.
-    // Shared by "دانلود و باز کردن" and by printing.
-    suspend fun downloadServerFile(report: ReportEntity): File? = withContext(Dispatchers.IO) {
-        try {
-            val bytes = NezamApi().downloadFile(report.imageName).getOrNull() ?: return@withContext null
-            val safeName = report.imageName.replace(Regex("[/\\\\:*?\"<>|]"), "_")
-            val dir = File(context.cacheDir, "server_reports").apply { mkdirs() }
-            val file = File(dir, safeName)
-            file.writeBytes(bytes)
-            file
-        } catch (_: Exception) {
-            null
+    // Download a server report's file into nezam_output (v3.11.3 — the
+    // shared helper: one name scheme, reuses an already-downloaded copy).
+    // Shared by "دانلود و باز کردن" and by printing. Returns null on
+    // failure. The old cache copy (<cacheDir>/server_reports) is no
+    // longer written.
+    suspend fun downloadServerFile(report: ReportEntity): File? {
+        val owner = cases.firstOrNull { it.caseNumber == report.caseNumber }?.owner ?: ""
+        return when (val downloaded = downloadServerReportFile(context, report, owner)) {
+            is ServerReportDownload.Ok -> downloaded.file
+            is ServerReportDownload.Failed -> null
         }
     }
 
@@ -1410,7 +1601,10 @@ private fun HistoryTab(
                 ?: findTemplate(File(paths.signedTemplatesPath), stageName, disciplines)
                 ?: return null
             val dir = File(context.cacheDir, "print").apply { mkdirs() }
-            val out = File(dir, "print-${record.caseNumber}.docx")
+            // v3.11.3: the case number has slashes ("1404/123") — sanitize
+            // it, or the file lands in a nested folder like the old
+            // report-date bug.
+            val out = File(dir, "print-${record.caseNumber.replace("/", "-")}.docx")
             val persianDate = toPersianDate(Date())
             if (buildWordReportToFile(template, case, spec, caseEngineers, persianDate, false, userName, out)) out else null
         } catch (_: Exception) {

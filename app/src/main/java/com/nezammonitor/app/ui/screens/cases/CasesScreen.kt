@@ -4,6 +4,7 @@ import com.nezammonitor.app.api.toPersianChars
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -86,7 +87,12 @@ private fun resolveCaseGroupDiscipline(
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-fun CasesScreen(viewModel: MainViewModel, onCaseClick: (String) -> Unit) {
+fun CasesScreen(
+    viewModel: MainViewModel,
+    onCaseClick: (String) -> Unit,
+    // v3.10.0: tapping an office number opens its directory detail page.
+    onDirectoryOfficeClick: (String) -> Unit = {}
+) {
     val cases by viewModel.cases.collectAsState()
     val specs by viewModel.specifications.collectAsState()
     val engineers by viewModel.engineers.collectAsState()
@@ -311,7 +317,14 @@ fun CasesScreen(viewModel: MainViewModel, onCaseClick: (String) -> Unit) {
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 if (case.office.isNotBlank()) {
-                                    Text("دفتر: ${case.office}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    // v3.10.0: the office name is tappable —
+                                    // it opens the office detail page.
+                                    Text(
+                                        "دفتر: ${case.office}",
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.clickable { onDirectoryOfficeClick(case.office) }
+                                    )
                                 }
                                 if (case.responsibility.isNotBlank()) {
                                     Box(

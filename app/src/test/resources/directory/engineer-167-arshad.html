@@ -1,0 +1,354 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <!-- Required meta tags -->
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+
+    <!-- Bootstrap CSS -->
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css"
+          integrity="sha384-ggOyR0iXCbMQv3Xipma34MD+dH/1fQ784/j6cY/iJTQUOhcWr7x9JvoRxT2MZw1T" crossorigin="anonymous">
+
+<!-- Optional JavaScript -->
+<!-- jQuery first, then Popper.js, then Bootstrap JS -->
+<script src="https://code.jquery.com/jquery-3.3.1.slim.min.js"
+        integrity="sha384-q8i/X+965DzO0rT7abK41JStQIAqVgRVzpbzo5smXKp4YfRvH+8abtTE1Pi6jizo"
+        crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.14.7/umd/popper.min.js"
+        integrity="sha384-UO2eT0CpHqdSJQ6hJty5KVphtPhzWj9WO1clHTMGa3JDZwrnQq4sF86dIHNDz0W1"
+        crossorigin="anonymous"></script>
+<script src="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/js/bootstrap.min.js"
+        integrity="sha384-JjSmVgyd0p3pXB1rRibZUAYoIIy6OrQ6VrjIEaFf/nJGzIxFDsf4x0xIM+B07jRM"
+        crossorigin="anonymous"></script>
+
+<script>
+    $(document).ready(function () {
+        ConvertNumberToPersion();
+    });
+
+    function ConvertNumberToPersion() {
+        persian = {0: '۰', 1: '۱', 2: '۲', 3: '۳', 4: '۴', 5: '۵', 6: '۶', 7: '۷', 8: '۸', 9: '۹'};
+
+        function traverse(el) {
+            if (el.nodeType == 3) {
+                var list = el.data.match(/[0-9]/g);
+                if (list != null && list.length != 0) {
+                    for (var i = 0; i < list.length; i++)
+                        el.data = el.data.replace(list[i], persian[list[i]]);
+                }
+            }
+            for (var i = 0; i < el.childNodes.length; i++) {
+                traverse(el.childNodes[i]);
+            }
+        }
+
+        traverse(document.body);
+    }
+
+    var data = [];
+
+    function changeModal(id) {
+        document.getElementById('orj_title').innerText = data[id]['orj_title'];
+        document.getElementById('orj_sherkat').innerText = data[id]['orj_sherkat'];
+        document.getElementById('orj_act_field').innerText = data[id]['orj_act_field'];
+        document.getElementById('orj_mas_dastavard').innerText = data[id]['orj_mas_dastavard'];
+        document.getElementById('orj_start_date').innerText = data[id]['orj_start_date'];
+        document.getElementById('orj_finish_date').innerText = data[id]['orj_finish_date'];
+        document.getElementById('orj_elat_tark').innerText = data[id]['orj_elat_tark'];
+        document.getElementById('orj_address_tell').innerText = data[id]['orj_address_tell'];
+        ConvertNumberToPersion();
+    }
+</script>
+    <style>
+        @font-face {
+            font-family: Vazir;
+            src: url('https://cdn.fontcdn.ir/Font/Persian/Vazir/Vazir.eot');
+            src: url('https://cdn.fontcdn.ir/Font/Persian/Vazir/Vazir.eot?#iefix') format('embedded-opentype'),
+            url('https://cdn.fontcdn.ir/Font/Persian/Vazir/Vazir.woff2') format('woff2'),
+            url('https://cdn.fontcdn.ir/Font/Persian/Vazir/Vazir.woff') format('woff'),
+            url('https://cdn.fontcdn.ir/Font/Persian/Vazir/Vazir.ttf') format('truetype');
+            font-weight: normal;
+        }
+
+        * {
+            font-family: Vazir;
+        }
+
+        .zereshki {
+            color: rgba(100, 0, 70, 01) !important;
+        }
+
+        .more {
+            color: rgba(100, 0, 70, 01) !important;
+        }
+
+        .more:hover {
+            color: rgb(203, 0, 144) !important;
+        }
+
+        .bg-color {
+            background-color: rgba(100, 0, 70, 01) !important;
+        }
+
+        .rtl {
+            direction: rtl;
+        }
+
+    </style>
+    <title>رزومه</title>
+</head>
+<body>
+
+
+
+<div class="container-floyd rtl">
+    <div class="row mx-1 mt-3">
+    </div>
+    <div class="row mx-4 mt-3">
+        <div class="col-md-2 col-sm-12">
+
+            <img src="http://service.yazdnezam.ir:8033/resume/Resume/public/uploads/img/ftpscanmohandesin/Pic/31-3-0-01063.jpg" class="img-fluid rounded float-right" alt="Responsive image"
+                 style="width: 120px;">
+        </div>
+        <div class="col-md-3 col-sm-12 mt-2">
+            <div class="row">
+                <p class="font-weight-bold zereshki">
+                    نام :
+                </p>
+                <p class="mr-1">
+                    محمد
+                </p>
+            </div>
+            <div class="row">
+                <p class="font-weight-bold zereshki">
+                    نام خانوادگی :
+                </p>
+                <p class="mr-1">
+                    افخمي اردكاني
+                </p>
+            </div>
+            <div class="row">
+                <p class="font-weight-bold zereshki">
+                    رشته :
+                </p>
+                <p class="mr-1">
+                    عمران
+                </p>
+            </div>
+            <div class="row">
+                <p class="font-weight-bold zereshki">
+                    شماره تماس :
+                </p>
+                <p class="mr-1">
+                    09133587127
+                </p>
+            </div>
+        </div>
+        <div class="col-md-3 col-sm-12 mt-2">
+                            <div class="row">
+                    <p class="font-weight-bold zereshki">
+                        پايه طراحی :
+                    </p>
+                    <p class="mr-1">
+                        1
+                                            </p>
+                </div>
+                                        <div class="row">
+                    <p class="font-weight-bold zereshki">
+                        پايه نظارت :
+                    </p>
+                    <p class="mr-1">
+                        1
+                                                    ارشد
+                                            </p>
+                </div>
+                                        <div class="row">
+                    <p class="font-weight-bold zereshki">
+                        پايه اجرا :
+                    </p>
+                    <p class="mr-1">
+                        1
+                                            </p>
+                </div>
+                    </div>
+        <div class="col-md-3 col-sm-12 mt-2">
+                            <div class="row">
+                    <p class="font-weight-bold zereshki">
+                        تاریخ صدور پروانه :
+                    </p>
+                    <p class="mr-1">
+                        1388/06/30
+                    </p>
+                </div>
+                                        <div class="row">
+                    <p class="font-weight-bold zereshki">
+                        تاریخ اعتبار پروانه :
+                    </p>
+                    <p class="mr-1">
+                        1408/03/02
+                    </p>
+                </div>
+                    </div>
+    </div>
+            <div class="row mx-5 mt-5">
+            <div class="font-weight-bold mb-1 mr-1 zereshki">تاريخ اخذ پروانه</div>
+            <div class="table-responsive">
+                <table class="table table-sm table-sm text-right text-center">
+                    <thead class="thead text-white bg-color">
+                    <tr>
+                        <th scope="col"></th>
+                        <th scope="col">پايه 1</th>
+                        <th scope="col">پايه 2</th>
+                        <th scope="col">پايه 3</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                                            <tr>
+                            <td>پايه طراحی</td>
+                                                            <td>
+                                    1400/10/25
+                                </td>
+                                                                                        <td>
+                                    1395/10/16
+                                </td>
+                                                                                        <td>
+                                    1391/10/15
+                                </td>
+                                                    </tr>
+                                                                <tr>
+                            <td>پايه نظارت</td>
+                                                            <td>
+                                    1397/08/07
+                                </td>
+                                                                                        <td>
+                                    1392/07/28
+                                </td>
+                                                                                        <td>
+                                    1388/06/30
+                                </td>
+                                                    </tr>
+                                                                <tr>
+                            <td>پايه اجرا</td>
+                                                            <td>
+                                    1392/07/28
+                                </td>
+                                                                                        <td>
+                                    1392/07/28
+                                </td>
+                                                                                        <td>
+                                    1388/06/30
+                                </td>
+                                                    </tr>
+                                        </tbody>
+                </table>
+            </div>
+        </div>
+                <div class="row mx-5 mt-5">
+            <div class="font-weight-bold mb-1 mr-1 zereshki">مدارک تحصيلی</div>
+            <div class="table-responsive">
+                <table class="table table-sm table-sm text-right text-center">
+                    <thead class="thead text-white bg-color">
+                    <tr>
+                        <th scope="col">رديف</th>
+                        <th scope="col">مدرک</th>
+                        <th scope="col">رشته</th>
+                        <th scope="col">گرايش</th>
+                        <th scope="col">نوع دانشگاه</th>
+                        <th scope="col">نام دانشگاه</th>
+                        <th scope="col">شهر اخذ مدرک</th>
+                        <th scope="col">كشور اخذ مدرک</th>
+                        <th scope="col">تاريخ شروع</th>
+                        <th scope="col">تاريخ پايان</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                                            <tr>
+                            <th scope="row">
+                                1
+                            </th>
+                            <td>
+                                كارشناسي
+                            </td>
+                            <td>
+                                عمران
+                            </td>
+                            <td>
+                                عمران
+                            </td>
+                            <td>
+                                سراسري
+                            </td>
+                            <td>
+                                دانشگاه يزد
+                            </td>
+                            <td>
+                                يزد
+                            </td>
+                            <td>
+                                ايران
+                            </td>
+                            <td>
+                                1300/01/01
+                            </td>
+                            <td>
+                                1383/11/15
+                            </td>
+                                        </tbody>
+                </table>
+            </div>
+        </div>
+                </div>
+        </div>
+
+<div class="modal fade" id="savabegheKariModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalCenterTitle"
+     aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-lg rtl" role="document">
+        <div class="modal-content">
+            <div class="modal-header text-white bg-color">
+                <h5 class="modal-title" id="exampleModalCenterTitle">سوابق كاری</h5>
+            </div>
+            <div class="modal-body" style="direction: rtl!important; text-align: right">
+                <div class="row m-1">
+                    <div class="font-weight-bold">عنوان شغل :</div>
+                    <div class="mr-1" id="orj_title"></div>
+                </div>
+                <div class="row m-1">
+                    <div class="font-weight-bold">محل خدمت :</div>
+                    <div class="mr-1" id="orj_sherkat"></div>
+                </div>
+                <div class="row m-1">
+                    <div class="font-weight-bold">زمينه فعاليت :</div>
+                    <div class="mr-1" id="orj_act_field"></div>
+                </div>
+                <div class="row m-1">
+                    <div class="font-weight-bold">دستاورد :</div>
+                    <div class="mr-1" id="orj_mas_dastavard"></div>
+                </div>
+                <div class="row m-1">
+                    <div class="font-weight-bold">تاريخ شروع :</div>
+                    <div class="mr-1" id="orj_start_date"></div>
+                </div>
+                <div class="row m-1">
+                    <div class="font-weight-bold" style="">تاريخ پايان :</div>
+                    <div class="mr-1" id="orj_finish_date"></div>
+                </div>
+                <div class="row m-1">
+                    <div class="font-weight-bold">علت ترک كار :</div>
+                    <div class="mr-1" id="orj_elat_tark"></div>
+                </div>
+                <div class="row m-1">
+                    <div class="font-weight-bold">تلفن و محل كار :</div>
+                    <div class="mr-1" id="orj_address_tell"></div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">بستن</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+
+</body>
+</html>

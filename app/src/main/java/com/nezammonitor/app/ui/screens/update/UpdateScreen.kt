@@ -49,6 +49,7 @@ import com.nezammonitor.app.ui.components.FolderBrowserDialog
 import com.nezammonitor.app.ui.components.NezamCard
 import com.nezammonitor.app.ui.screens.reportgen.DEFAULT_NEZAM_ROOT
 import com.nezammonitor.app.ui.screens.reportgen.displayShamsiDate
+import com.nezammonitor.app.ui.screens.reportgen.reportCaseFolderName
 import com.nezammonitor.app.ui.screens.reportgen.todayJalali
 import com.nezammonitor.app.ui.theme.nezamSemantic
 import com.nezammonitor.app.ui.toPersianDigits
@@ -236,7 +237,7 @@ fun UpdateScreen(
                     Text("مسیر فعلی:", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text(reportPath, fontSize = 14.sp, fontWeight = FontWeight.Medium)
                     Spacer(modifier = Modifier.height(4.dp))
-                    Text("گزارش‌های دانلودشده در پوشهٔ downloads زیر همین مسیر ذخیره می‌شوند.", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("گزارش‌های دانلودشده در پوشهٔ nezam_output زیر همین مسیر ذخیره می‌شوند.", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text("برای تغییر کلیک کنید", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
                     if (reportPath != DEFAULT_NEZAM_ROOT) {
                         TextButton(onClick = {
@@ -502,9 +503,11 @@ fun UpdateScreen(
 
                                 val owner = "${safe(apiCase, "own_name")} ${safe(apiCase, "own_famil")}".trim()
                                 val caseNum2 = "${safe(apiCase, "das_year")}/${safe(apiCase, "das_number")}"
-                                val safeOwner = owner.replace("/", "_").replace("\\", "_").replace(":", "_")
-                                val safeCase = caseNum2.replace("/", "_")
-                                val caseFolder = java.io.File(reportPath, "downloads/$caseNum" + "_${safeOwner}_$safeCase")
+                                // v3.11.3: downloads go to nezam_output, in the
+                                // same per-case folder shape as the generated
+                                // reports (see ReportFileNames.kt) — the
+                                // counter is the update-loop counter, as before.
+                                val caseFolder = java.io.File(reportPath, "nezam_output/" + reportCaseFolderName(caseNum, owner, caseNum2))
                                 caseFolder.mkdirs()
 
                                 for ((rptIdx, rpt) in rptList.withIndex()) {

@@ -30,7 +30,12 @@ import com.nezammonitor.app.viewmodel.MainViewModel
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-fun EngineersScreen(viewModel: MainViewModel, onCaseClick: (String) -> Unit) {
+fun EngineersScreen(
+    viewModel: MainViewModel,
+    onCaseClick: (String) -> Unit,
+    // v3.10.0: tapping an engineer name opens their directory profile.
+    onDirectoryEngineerClick: (engineerName: String) -> Unit = { _ -> }
+) {
     val cases by viewModel.cases.collectAsState()
     val engineers by viewModel.engineers.collectAsState()
     var searchQuery by remember { mutableStateOf("") }
@@ -214,7 +219,14 @@ fun EngineersScreen(viewModel: MainViewModel, onCaseClick: (String) -> Unit) {
                             val sina = remember(eng.name) { SinaEngineerStore.findByName(context, eng.name) }
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                                 Column(modifier = Modifier.weight(1f)) {
-                                    Text("• ${toPersianChars(eng.name)} (${toPersianChars(eng.discipline)})", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    // v3.10.0: the engineer name is tappable —
+                                    // it opens the directory profile page.
+                                    Text(
+                                        "• ${toPersianChars(eng.name)} (${toPersianChars(eng.discipline)})",
+                                        fontSize = 12.sp,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.clickable { onDirectoryEngineerClick(eng.name) }
+                                    )
                                     if (sina != null) Text("  ${formatSinaLevels(sina)}", fontSize = 11.sp, color = MaterialTheme.colorScheme.secondary)
                                 }
                                 val phone = sina?.phone?.ifBlank { null } ?: eng.phone.ifBlank { null }

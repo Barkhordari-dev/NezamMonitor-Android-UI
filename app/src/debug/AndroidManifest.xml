@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- v3.11.6, test-only host for the Compose UI tests
+         (DirectoryDetailScreensTest): Robolectric resolves the launched
+         activity from the DEBUG variant's merged manifest, and the
+         generic ComponentActivity is not in the app manifest — so it is
+         declared here, in the DEBUG source set only. It never reaches
+         the release APK, is not exported, has no intent filters and is
+         never launched by the app itself. (The ui-test-manifest
+         dependency declares the same activity, but only for the test
+         APK — local unit tests have no test APK, so Robolectric never
+         sees it. src/test/AndroidManifest.xml is NOT merged for unit
+         tests in AGP 8.1, which is why this lives here.) -->
+    <application>
+        <activity
+            android:name="androidx.activity.ComponentActivity"
+            android:exported="false" />
+    </application>
+</manifest>

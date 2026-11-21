@@ -25,6 +25,39 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // combineInternal). Do not move this below `init`.
     private val archivedNumbersFlow = MutableStateFlow<Set<String>>(emptySet())
 
+    // ---- Yazd design-offices directory (v3.10.0; read-only since v3.11.3) ----
+    // These two MUST stay declared before the `init` block below. The
+    // init launch seeds the snapshot through them, and a property
+    // declared after `init` is still null when `init` runs: in 3.11.4
+    // they lived below `init` (with a comment wrongly claiming nothing
+    // in init touched them) and the seed died with a
+    // NullPointerException in Lazy.getValue() — every office and
+    // engineer detail showed the failure reason instead of data. Same
+    // initializer-order rule as archivedNumbersFlow (the 3.7.6 launch
+    // crash): anything init touches lives above init.
+    private val directoryDao = db.directoryDao()
+    private val directoryRepository by lazy { DirectoryRepository(getApplication(), directoryDao) }
+
+    /** v3.11.4: the directory seed is VISIBLE now. In 3.11.3 the seed ran
+     *  inside a runCatching whose result was discarded — if the tables
+     *  stayed empty, nothing anywhere said why, and both detail pages
+     *  showed a bare «یافت نشد». This flow carries the outcome (plus the
+     *  live table counts) for the Settings diagnostics card and for the
+     *  detail pages' empty-table message.
+     *  MUST stay declared before the `init` block below, like
+     *  archivedNumbersFlow: the init launch writes it before its first
+     *  suspension point. */
+    data class DirectorySeedStatus(
+        val version: String = "",
+        /** "unknown" | "seeding" | "seeded" | "already" | "failed" */
+        val state: String = "unknown",
+        val offices: Int = 0,
+        val engineers: Int = 0,
+        val reason: String = ""
+    )
+    private val _directorySeedStatus = MutableStateFlow(DirectorySeedStatus())
+    val directorySeedStatus: StateFlow<DirectorySeedStatus> = _directorySeedStatus.asStateFlow()
+
     // Cases — non-archived only. Archived cases live in _archivedCases and
     // show nowhere else: their engineers/fees/reports/specs/follow-up edits
     // are filtered out here too, so every screen that reads these flows
@@ -115,6 +148,29 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     init {
         settingsPrefs.registerOnSharedPreferenceChangeListener(prefsListener)
         loadAllData()
+        // v3.11.4: seed the directory tables from the bundled snapshot
+        // asset (no network; a no-op when this version was already
+        // seeded). The outcome is KEPT this time — in 3.11.3 it was
+        // discarded inside runCatching, so a silent seed failure left
+        // both detail pages empty with no explanation anywhere. Runs in
+        // the background; the detail screens read from the local tables,
+        // so they pick the data up as it lands.
+        viewModelScope.launch {
+            _directorySeedStatus.value = DirectorySeedStatus(state = "seeding")
+            val outcome = runCatching { directoryRepository.ensureSnapshotSeeded(getApplication()) }
+                .getOrElse { DirectorySnapshotSeeder.SeedOutcome.Failed(it.message ?: it.javaClass.simpleName) }
+            val offices = runCatching { directoryDao.getOfficeCount() }.getOrDefault(0)
+            val engineers = runCatching { directoryDao.getEngineerCount() }.getOrDefault(0)
+            val version = settingsPrefs.getString(DirectorySnapshotSeeder.PREF_VERSION_KEY, "") ?: ""
+            _directorySeedStatus.value = when (outcome) {
+                is DirectorySnapshotSeeder.SeedOutcome.Seeded ->
+                    DirectorySeedStatus(outcome.version, "seeded", offices, engineers)
+                is DirectorySnapshotSeeder.SeedOutcome.AlreadySeeded ->
+                    DirectorySeedStatus(version, "already", offices, engineers)
+                is DirectorySnapshotSeeder.SeedOutcome.Failed ->
+                    DirectorySeedStatus(version, "failed", offices, engineers, outcome.reason)
+            }
+        }
     }
 
     override fun onCleared() {
@@ -468,4 +524,187 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
     }
+
+    // ---- Yazd design-offices directory (v3.10.0, read-only since v3.11.3) ----
+    // No directory list screen and NO in-app update anymore (user
+    // decision 2026-11-20): the complete directory ships inside the app
+    // as a bundled snapshot (DirectorySnapshotSeeder) and the user
+    // replaces the snapshot itself in a future version. These screens
+    // only ever read the local Room tables — a tap on an office number
+    // or an engineer name opens the stored record, or «یافت نشد» when
+    // the snapshot has no such record. Nothing here touches the network.
+    // (directoryDao / directoryRepository live at the top of this class,
+    // above `init` — the init launch seeds through them; see there.)
+
+    private val _directoryOffice = MutableStateFlow<DirectoryOfficeDetail?>(null)
+    val directoryOffice: StateFlow<DirectoryOfficeDetail?> = _directoryOffice.asStateFlow()
+
+    private val _directoryEngineer = MutableStateFlow<DirectoryEngineerProfile?>(null)
+    val directoryEngineer: StateFlow<DirectoryEngineerProfile?> = _directoryEngineer.asStateFlow()
+
+    /** The photo URL currently shown on the engineer profile: the
+     *  stored (snapshot) URL first, replaced by the freshly fetched
+     *  one when the detail-page fetch succeeds (v3.11.3). Null = no
+     *  photo yet — the screen shows the initials fallback. Session-only:
+     *  never written back to the directory tables. */
+    private val _directoryEngineerPhotoUrl = MutableStateFlow<String?>(null)
+    val directoryEngineerPhotoUrl: StateFlow<String?> = _directoryEngineerPhotoUrl.asStateFlow()
+
+    private val _directoryLoading = MutableStateFlow(false)
+    val directoryLoading: StateFlow<Boolean> = _directoryLoading.asStateFlow()
+
+    private val _directoryMessage = MutableStateFlow<String?>(null)
+    val directoryMessage: StateFlow<String?> = _directoryMessage.asStateFlow()
+
+    fun clearDirectoryMessage() {
+        _directoryMessage.value = null
+    }
+
+    fun clearDirectoryDetail() {
+        _directoryOffice.value = null
+        _directoryEngineer.value = null
+        _directoryEngineerPhotoUrl.value = null
+        _directoryMessage.value = null
+    }
+
+    private suspend fun loadOfficeFromDb(siteId: Int) {
+        val office = directoryDao.getOffice(siteId) ?: return
+        val members = directoryDao.getEngineersForOffice(siteId)
+        _directoryOffice.value = DirectoryOfficeDetail(office, members)
+    }
+
+    private suspend fun loadEngineerFromDb(siteId: Int) {
+        val engineer = directoryDao.getEngineer(siteId) ?: return
+        _directoryEngineer.value = DirectoryEngineerProfile(
+            engineer,
+            directoryDao.getEducation(siteId),
+            directoryDao.getLicenceHistory(siteId)
+        )
+    }
+
+    /** v3.11.4: when the directory tables are empty, the detail page
+     *  must show the REAL reason (seed failed / still seeding), never
+     *  a bare «یافت نشد». */
+    private fun directoryEmptyMessage(what: String, searched: String): String {
+        val status = _directorySeedStatus.value
+        return when (status.state) {
+            "failed" -> "اطلاعات $what بارگذاری نشده است: ${status.reason} (جستجو: «$searched»)"
+            "seeding" -> "اطلاعات $what هنوز در حال بارگذاری است — چند ثانیه دیگر دوباره تلاش کنید (جستجو: «$searched»)"
+            else -> "اطلاعات $what در برنامه نیست (جستجو: «$searched»)"
+        }
+    }
+
+    /** Opens an office by its displayed name (tapped in the existing UI).
+     *  Local snapshot data ONLY (v3.11.3): no site fetch. Shows
+     *  «یافت نشد» when the bundled snapshot has no such office.
+     *  v3.11.4: the clicked value is the raw `daf_name` from the case
+     *  API ("شماره 194 يزد", "دفتر شماره 89", a bare number "۱۹۴") —
+     *  never the stored "دفتر 194" — so the lookup resolves it first
+     *  (DirectoryParser.resolveOffice); the 3.11.3 plain comparison
+     *  never matched and every office answered «یافت نشد». */
+    fun loadDirectoryOfficeByName(name: String) {
+        viewModelScope.launch {
+            _directoryLoading.value = true
+            _directoryMessage.value = null
+            // v3.11.6: do NOT clear the shown detail here. The old code
+            // set _directoryOffice to null first, so a reload (same
+            // screen, new name — e.g. office -> member -> profile ->
+            // office link) or a back-press nulling the state could land
+            // while the LazyColumn was mid-composition and the screen's
+            // `detail!!` re-reads crashed (phone NPE at
+            // DirectoryOfficeDetailScreen.kt:148). The previous detail
+            // stays visible while the new one loads; it is replaced on
+            // success and cleared only when the lookup really fails.
+            try {
+                val offices = directoryDao.getAllOfficesList()
+                val local = DirectoryParser.resolveOffice(name, offices)
+                if (local != null) {
+                    loadOfficeFromDb(local.siteId)
+                } else if (offices.isEmpty()) {
+                    _directoryOffice.value = null
+                    _directoryMessage.value = directoryEmptyMessage("دفتر", name)
+                } else {
+                    _directoryOffice.value = null
+                    val wanted = DirectoryParser.officeQueryName(name)
+                    _directoryMessage.value = if (wanted.isNotBlank() && wanted != name)
+                        "دفتر «$name» (جستجو: $wanted) یافت نشد"
+                    else
+                        "دفتر «$name» یافت نشد"
+                }
+            } catch (e: Exception) {
+                _directoryOffice.value = null
+                _directoryMessage.value = "خطا در خواندن اطلاعات دفتر: ${e.message}"
+            } finally {
+                _directoryLoading.value = false
+            }
+        }
+    }
+
+    /** Opens an engineer profile by full name ("first + family").
+     *  Local snapshot data ONLY (v3.11.3): no site fetch. Shows
+     *  «یافت نشد» when the bundled snapshot has no such engineer.
+     *  v3.11.4: the name may carry a "مهندس" title and matches the
+     *  full name, the first name, or the family separately
+     *  (DirectoryParser.resolveEngineer).
+     *  The photo is display-only: the stored URL shows immediately,
+     *  then one detail-page fetch (session-only, never saved) replaces
+     *  it with a fresh URL when one is found; failures stay silent. */
+    fun loadDirectoryEngineerByName(fullName: String) {
+        viewModelScope.launch {
+            _directoryLoading.value = true
+            _directoryMessage.value = null
+            // v3.11.6: same as loadDirectoryOfficeByName — the old code
+            // nulled _directoryEngineer (and the photo URL) first, so a
+            // reload while the profile LazyColumn was composed crashed
+            // the screen's `profile!!` re-reads (phone NPE at
+            // DirectoryEngineerProfileScreen.kt:199). Keep the previous
+            // profile/photo visible while loading; replace on success,
+            // clear only when the lookup really fails.
+            try {
+                val engineers = directoryDao.getAllEngineersList()
+                val local = DirectoryParser.resolveEngineer(fullName, engineers)
+                if (local != null) {
+                    loadEngineerFromDb(local.siteId)
+                    // Show the stored photo at once (fast, works offline),
+                    // then try one fresh fetch for the display.
+                    _directoryEngineerPhotoUrl.value = local.photo.takeIf { it.isNotBlank() }
+                    viewModelScope.launch {
+                        val fresh = DirectoryPhotoLoader.fetchPhotoUrl(local.siteId)
+                        // Only apply if this profile is still open — the
+                        // user may have opened another engineer meanwhile.
+                        if (fresh != null && _directoryEngineer.value?.engineer?.siteId == local.siteId) {
+                            _directoryEngineerPhotoUrl.value = fresh
+                        }
+                    }
+                } else if (engineers.isEmpty()) {
+                    _directoryEngineer.value = null
+                    _directoryEngineerPhotoUrl.value = null
+                    _directoryMessage.value = directoryEmptyMessage("مهندس", fullName)
+                } else {
+                    _directoryEngineer.value = null
+                    _directoryEngineerPhotoUrl.value = null
+                    _directoryMessage.value = "مهندس «$fullName» یافت نشد"
+                }
+            } catch (e: Exception) {
+                _directoryEngineer.value = null
+                _directoryEngineerPhotoUrl.value = null
+                _directoryMessage.value = "خطا در خواندن اطلاعات مهندس: ${e.message}"
+            } finally {
+                _directoryLoading.value = false
+            }
+        }
+    }
 }
+
+/** An office with its member engineers, for the office detail screen. */
+data class DirectoryOfficeDetail(
+    val office: DirectoryOfficeEntity,
+    val members: List<DirectoryEngineerEntity>
+)
+
+/** An engineer with education + licence history, for the profile screen. */
+data class DirectoryEngineerProfile(
+    val engineer: DirectoryEngineerEntity,
+    val education: List<DirectoryEducationEntity>,
+    val history: List<DirectoryLicenceHistoryEntity>
+)

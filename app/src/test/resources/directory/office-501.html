@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <!-- Required meta tags -->
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+
+    <!-- Bootstrap CSS -->
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css"
+          integrity="sha384-ggOyR0iXCbMQv3Xipma34MD+dH/1fQ784/j6cY/iJTQUOhcWr7x9JvoRxT2MZw1T" crossorigin="anonymous">
+
+<!-- Optional JavaScript -->
+<!-- jQuery first, then Popper.js, then Bootstrap JS -->
+<script src="https://code.jquery.com/jquery-3.3.1.slim.min.js"
+        integrity="sha384-q8i/X+965DzO0rT7abK41JStQIAqVgRVzpbzo5smXKp4YfRvH+8abtTE1Pi6jizo"
+        crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.14.7/umd/popper.min.js"
+        integrity="sha384-UO2eT0CpHqdSJQ6hJty5KVphtPhzWj9WO1clHTMGa3JDZwrnQq4sF86dIHNDz0W1"
+        crossorigin="anonymous"></script>
+<script src="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/js/bootstrap.min.js"
+        integrity="sha384-JjSmVgyd0p3pXB1rRibZUAYoIIy6OrQ6VrjIEaFf/nJGzIxFDsf4x0xIM+B07jRM"
+        crossorigin="anonymous"></script>
+
+<script>
+    $(document).ready(function () {
+        ConvertNumberToPersion();
+    });
+
+    function ConvertNumberToPersion() {
+        persian = {0: '۰', 1: '۱', 2: '۲', 3: '۳', 4: '۴', 5: '۵', 6: '۶', 7: '۷', 8: '۸', 9: '۹'};
+
+        function traverse(el) {
+            if (el.nodeType == 3) {
+                var list = el.data.match(/[0-9]/g);
+                if (list != null && list.length != 0) {
+                    for (var i = 0; i < list.length; i++)
+                        el.data = el.data.replace(list[i], persian[list[i]]);
+                }
+            }
+            for (var i = 0; i < el.childNodes.length; i++) {
+                traverse(el.childNodes[i]);
+            }
+        }
+
+        traverse(document.body);
+    }
+
+    var data = [];
+
+    function changeModal(id) {
+        document.getElementById('drj_title').innerText = data[id]['drj_title'];
+        document.getElementById('drj_year').innerText = data[id]['drj_year'];
+        document.getElementById('drj_location').innerText = data[id]['drj_location'];
+        document.getElementById('drj_desc').innerText = data[id]['drj_desc'];
+        ConvertNumberToPersion();
+    }
+
+</script>
+    <style>
+        @font-face {
+            font-family: Vazir;
+            src: url('https://cdn.fontcdn.ir/Font/Persian/Vazir/Vazir.eot');
+            src: url('https://cdn.fontcdn.ir/Font/Persian/Vazir/Vazir.eot?#iefix') format('embedded-opentype'),
+            url('https://cdn.fontcdn.ir/Font/Persian/Vazir/Vazir.woff2') format('woff2'),
+            url('https://cdn.fontcdn.ir/Font/Persian/Vazir/Vazir.woff') format('woff'),
+            url('https://cdn.fontcdn.ir/Font/Persian/Vazir/Vazir.ttf') format('truetype');
+            font-weight: normal;
+        }
+
+        * {
+            font-family: Vazir;
+        }
+
+        .zereshki {
+            color: rgba(100, 0, 70, 01) !important;
+        }
+
+        .more {
+            color: rgba(100, 0, 70, 01) !important;
+        }
+
+        .more:hover {
+            color: rgb(203, 0, 144) !important;
+        }
+
+        .bg-color {
+            background-color: rgba(100, 0, 70, 01) !important;
+        }
+
+        .rtl {
+            direction: rtl;
+        }
+
+    </style>
+    <title>رزومه</title>
+</head>
+<body>
+<div class="container-floyd rtl">
+    <div class="row mx-1 mt-3">
+    </div>
+    <div class="row text-right mx-4 mt-3">
+        <div class="col-md-2 col-sm-12">
+            <img src="http://service.yazdnezam.ir:8033/resume/img/images.png" class="img-fluid rounded float-right" alt="Responsive image"
+                 style="width: 120px;">
+        </div>
+        <div class="col-md-4 col-sm-12 mt-2">
+            <div class="row">
+                <p class="font-weight-bold zereshki">
+                    نام دفتر :
+                </p>
+                <p class="mr-1">
+                    دفتر 240
+                </p>
+            </div>
+            <div class="row">
+                <p class="font-weight-bold zereshki">
+                    شماره مجوز :
+                </p>
+                <p class="mr-1">
+                    <span dir="rtl">5-31-0005401-00240</span>
+                </p>
+            </div>
+            <div class="row">
+                <p class="font-weight-bold zereshki">
+                    نام و نام خانوادگی مسئول دفتر :
+                </p>
+                <p class="mr-1">
+                    مينا
+                    علاف زاده
+                </p>
+            </div>
+            <div class="row">
+                <p class="font-weight-bold zereshki">
+                    شماره همراه مسئول دفتر :
+                </p>
+                <p class="mr-1">
+                    09383494498
+                </p>
+            </div>
+            <div class="row">
+                <p class="font-weight-bold zereshki">
+                    نام و نام خانوادگی رابط :
+                </p>
+                <p class="mr-1">
+                    
+                </p>
+            </div>
+        </div>
+        <div class="col-md-4 col-sm-12 mt-2">
+            <div class="row">
+                <p class="font-weight-bold zereshki">
+                    استان صادركننده مجوز :
+                </p>
+                <p class="mr-1">
+                    يزد
+                </p>
+            </div>
+            <div class="row">
+                <p class="font-weight-bold zereshki">
+                    شهرستان محدوده فعاليت :
+                </p>
+                <p class="mr-1">
+                    
+                </p>
+            </div>
+            <div class="row">
+                <p class="font-weight-bold zereshki">
+                    آدرس :
+                </p>
+                <p class="mr-1">
+                    يزد شهر يزد - رسالت - كوچه 15 متري 3 رسالت - بلوار آيت الله 
+                </p>
+            </div>
+            <div class="row">
+                <p class="font-weight-bold zereshki">
+                    شماره تماس :
+                </p>
+                <p class="mr-1">
+                    
+                </p>
+            </div>
+            <div class="row">
+                <p class="font-weight-bold zereshki">
+                    فكس :
+                </p>
+                <p class="mr-1">
+                    
+                </p>
+            </div>
+            <div class="row">
+                <p class="font-weight-bold zereshki">
+                    ساعت كاری :
+                </p>
+                <p class="mr-1">
+                    
+                </p>
+            </div>
+
+        </div>
+    </div>
+
+            </div>
+
+
+                </div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    </div>
+</div>
+<div class="modal fade" id="savabegheKariModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalCenterTitle"
+     aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-lg rtl" role="document">
+        <div class="modal-content">
+            <div class="modal-header text-white bg-color">
+                <h5 class="modal-title" id="exampleModalCenterTitle">سوابق كاری</h5>
+            </div>
+            <div class="modal-body" style="direction: rtl!important; text-align: right">
+                <div class="row m-1">
+                    <div class="font-weight-bold">عنوان پروژه :</div>
+                    <div class="mr-1" id="drj_title"></div>
+                </div>
+                <div class="row m-1">
+                    <div class="font-weight-bold">محل اجرا :</div>
+                    <div class="mr-1" id="drj_location"></div>
+                </div>
+                <div class="row m-1">
+                    <div class="font-weight-bold">سال اجرا :</div>
+                    <div class="mr-1" id="drj_year"></div>
+                </div>
+                <div class="row m-1">
+                    <div class="font-weight-bold">عمليات :</div>
+                    <div class="mr-1" id="drj_desc"></div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">بستن</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+
+
+</body>
+</html>

@@ -27,11 +27,19 @@ import com.nezammonitor.app.ui.components.formatFeeAmount
 import com.nezammonitor.app.ui.components.payStatusDisplay
 import com.nezammonitor.app.ui.components.reportStageLabel
 import com.nezammonitor.app.ui.components.stageNameOnly
+import com.nezammonitor.app.ui.screens.reportgen.ServerReportFileButtons
 import com.nezammonitor.app.viewmodel.MainViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CaseDetailScreen(viewModel: MainViewModel, onBack: () -> Unit) {
+fun CaseDetailScreen(
+    viewModel: MainViewModel,
+    onBack: () -> Unit,
+    // v3.10.0: tapping the office number opens its directory detail page;
+    // tapping an engineer name opens their directory profile page.
+    onDirectoryOfficeClick: (String) -> Unit = {},
+    onDirectoryEngineerClick: (engineerName: String) -> Unit = { _ -> }
+) {
     val case by viewModel.caseDetail.collectAsState()
     val spec by viewModel.caseSpec.collectAsState()
     val engineers by viewModel.caseEngineers.collectAsState()
@@ -104,7 +112,21 @@ fun CaseDetailScreen(viewModel: MainViewModel, onBack: () -> Unit) {
                                 )
                             }
                         }
-                        DetailRow("دفتر", case?.office ?: "")
+                        // v3.10.0: the office name is tappable — it opens
+                        // the office detail page.
+                        if (case?.office?.isNotBlank() == true) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 6.dp)
+                                    .clickable { onDirectoryOfficeClick(case?.office ?: "") },
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("دفتر", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(case?.office ?: "", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.primary)
+                            }
+                            Divider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                        }
                         DetailRow("مسئولیت", case?.responsibility ?: "")
                         DetailRow("تاریخ کسر ظرفیت", case?.capacityDate ?: "")
                         DetailRow("نوع کار", case?.workType ?: "")
@@ -162,7 +184,15 @@ fun CaseDetailScreen(viewModel: MainViewModel, onBack: () -> Unit) {
                         Column(modifier = Modifier.padding(12.dp)) {
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
                                 Column(modifier = Modifier.weight(1f)) {
-                                    Text(toPersianChars(eng.name), fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                    // v3.10.0: the engineer name is tappable —
+                                    // it opens the directory profile page.
+                                    Text(
+                                        toPersianChars(eng.name),
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 14.sp,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.clickable { onDirectoryEngineerClick(eng.name) }
+                                    )
                                     Text("رشته: ${toPersianChars(eng.discipline)}", fontSize = 13.sp)
                                     if (eng.role.isNotBlank()) {
                                         Text("نقش: ${eng.role}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -262,7 +292,19 @@ fun CaseDetailScreen(viewModel: MainViewModel, onBack: () -> Unit) {
                             }
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                                 Column(modifier = Modifier.weight(1f)) {
-                                    Text("مهندس: ${toPersianChars(report.engineer)} | رشته: ${toPersianChars(report.discipline)}", fontSize = 12.sp)
+                                    // v3.10.0: the engineer name is tappable —
+                                    // it opens the directory profile page.
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text("مهندس: ", fontSize = 12.sp)
+                                        Text(
+                                            toPersianChars(report.engineer),
+                                            fontSize = 12.sp,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            fontWeight = FontWeight.Medium,
+                                            modifier = Modifier.clickable { onDirectoryEngineerClick(report.engineer) }
+                                        )
+                                        Text(" | رشته: ${toPersianChars(report.discipline)}", fontSize = 12.sp)
+                                    }
                                     if (sinaRep != null) {
                                         Text(formatSinaLevels(sinaRep), fontSize = 11.sp, color = MaterialTheme.colorScheme.secondary)
                                     }
@@ -277,6 +319,10 @@ fun CaseDetailScreen(viewModel: MainViewModel, onBack: () -> Unit) {
                             if (sinaRep?.phone?.isNotBlank() == true) {
                                 Text(sinaRep.phone, fontSize = 12.sp, color = MaterialTheme.colorScheme.primary, modifier = Modifier.clickable { dialPhone(sinaRep.phone) })
                             }
+                            // v3.11.0: «باز کردن» / «دانلود و باز کردن» — مثل تب سابقه.
+                            // v3.11.3: the owner is passed so an on-demand
+                            // download lands in the case's nezam_output folder.
+                            ServerReportFileButtons(report, case?.owner ?: "")
                         }
                     }
                 }
@@ -299,8 +345,14 @@ fun CaseDetailScreen(viewModel: MainViewModel, onBack: () -> Unit) {
 }
 
 @Composable
-fun DetailRow(label: String, value: String) {
-    if (value.isNotBlank()) {
+fun DetailRow(label: String, value: String, showPlaceholder: Boolean = false) {
+    // v3.11.6: directory pages pass showPlaceholder = true so a missing
+    // value renders as muted «ثبت نشده» instead of a blank row. The
+    // default (false) keeps the old behavior — a blank row is hidden —
+    // so the 34 CaseDetailScreen call sites are unchanged.
+    val missing = value.isBlank() || value.trim() == "_" || value.trim() == "-"
+    val display = if (showPlaceholder && missing) "ثبت نشده" else value
+    if (display.isNotBlank()) {
         Column(modifier = Modifier.fillMaxWidth()) {
             Row(
                 modifier = Modifier
@@ -309,7 +361,13 @@ fun DetailRow(label: String, value: String) {
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(label, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(value, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                Text(
+                    display,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = if (showPlaceholder && missing) MaterialTheme.colorScheme.onSurfaceVariant
+                    else MaterialTheme.colorScheme.onSurface
+                )
             }
             Divider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
         }

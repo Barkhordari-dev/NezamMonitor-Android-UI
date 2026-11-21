@@ -1,0 +1,758 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <!-- Required meta tags -->
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+
+    <!-- Bootstrap CSS -->
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css"
+          integrity="sha384-ggOyR0iXCbMQv3Xipma34MD+dH/1fQ784/j6cY/iJTQUOhcWr7x9JvoRxT2MZw1T" crossorigin="anonymous">
+
+    <script src="https://kit.fontawesome.com/aeaa3bd9ba.js" crossorigin="anonymous"></script>
+
+    <!-- Optional JavaScript -->
+<!-- jQuery first, then Popper.js, then Bootstrap JS -->
+<script src="https://code.jquery.com/jquery-3.3.1.slim.min.js"
+        integrity="sha384-q8i/X+965DzO0rT7abK41JStQIAqVgRVzpbzo5smXKp4YfRvH+8abtTE1Pi6jizo"
+        crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.14.7/umd/popper.min.js"
+        integrity="sha384-UO2eT0CpHqdSJQ6hJty5KVphtPhzWj9WO1clHTMGa3JDZwrnQq4sF86dIHNDz0W1"
+        crossorigin="anonymous"></script>
+<script src="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/js/bootstrap.min.js"
+        integrity="sha384-JjSmVgyd0p3pXB1rRibZUAYoIIy6OrQ6VrjIEaFf/nJGzIxFDsf4x0xIM+B07jRM"
+        crossorigin="anonymous"></script>
+<script>
+
+    $(document).ready(function () {
+        ConvertNumberToPersion();
+    });
+
+    function ConvertNumberToPersion() {
+        persian = {0: '۰', 1: '۱', 2: '۲', 3: '۳', 4: '۴', 5: '۵', 6: '۶', 7: '۷', 8: '۸', 9: '۹'};
+
+        function traverse(el) {
+            if (el.nodeType == 3) {
+                var list = el.data.match(/[0-9]/g);
+                if (list != null && list.length != 0) {
+                    for (var i = 0; i < list.length; i++)
+                        el.data = el.data.replace(list[i], persian[list[i]]);
+                }
+            }
+            for (var i = 0; i < el.childNodes.length; i++) {
+                traverse(el.childNodes[i]);
+            }
+        }
+
+        traverse(document.body);
+    }
+
+</script>
+
+    <style>
+        @font-face {
+            font-family: Vazir;
+            src: url('https://cdn.fontcdn.ir/Font/Persian/Vazir/Vazir.eot');
+            src: url('https://cdn.fontcdn.ir/Font/Persian/Vazir/Vazir.eot?#iefix') format('embedded-opentype'),
+            url('https://cdn.fontcdn.ir/Font/Persian/Vazir/Vazir.woff2') format('woff2'),
+            url('https://cdn.fontcdn.ir/Font/Persian/Vazir/Vazir.woff') format('woff'),
+            url('https://cdn.fontcdn.ir/Font/Persian/Vazir/Vazir.ttf') format('truetype');
+            font-weight: normal;
+        }
+
+        * {
+            font-family: Vazir;
+        }
+
+        .page-item:first-child .page-link {
+            margin-right: 0 !important;
+            border-radius: 0 .25rem .25rem 0 !important;
+        }
+
+        .page-item:last-child .page-link {
+            margin-right: 0 !important;
+            border-radius: .25rem 0 0 .25rem !important;
+        }
+
+        .more {
+            color: rgba(100, 0, 70, 01) !important;
+        }
+
+        .more:hover {
+            color: rgb(203, 0, 144) !important;
+        }
+
+        .rtl {
+            direction: rtl;
+        }
+
+        .ltr {
+            direction: ltr;
+        }
+
+    </style>
+    <title>لیست دفاتر طراحی</title>
+</head>
+<body>
+
+<nav class="navbar navbar-light" style="direction: rtl; background-color:rgba(100, 0, 70, 01)!important;">
+    <h5 class="text-right text-white my-auto">
+        ليست دفاتر طراحی سازمان نظام مهندسی ساختمان استان يزد
+    </h5>
+</nav>
+
+<div class="container-floyd rtl">
+    <div class="row mx-5" style="margin: 15px;">
+        <form class="" method="get" action="http://service.yazdnezam.ir:8033/resume/daftar/search">
+            <div class="row">
+                <div class="col-md-3 col-xs-12 p-0">
+                    <input type="text" class="form-control text-right rtl" placeholder="نام دفتر" name="name">
+                </div>
+                <div class="col-md-3 col-xs-12 p-0">
+                    <input type="text" class="form-control text-right rtl" placeholder="نام مسئول" name="nameMasoul">
+                </div>
+                <div class="col-md-3 col-xs-12 p-0">
+                    <input type="text" class="form-control text-right rtl" placeholder="نام خانوادگی مسئول"
+                           name="familyMasoul">
+                </div>
+                <div class="col-md-3 col-xs-12 p-0 ltr">
+                    <div class="input-group-prepend">
+                        <button class="btn btn-outline-secondary" type="submit" id="button-addon1">
+                            <i class="fas fa-search"></i>
+                        </button>
+
+                        <select class="custom-select rtl" id="inputGroupSelect01" name="shahr">
+                            <option selected value="">شهرستان</option>
+                            <option value="1">ابرکوه</option>
+                            <option value="2">اردکان</option>
+                            <option value="3">اشکذر</option>
+                            <option value="4">بافق</option>
+                            <option value="5">تفت</option>
+                            <option value="6">خاتم</option>
+                            <option value="7">مهریز</option>
+                            <option value="8">میبد</option>
+                            <option value="9">يزد</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+        </form>
+    </div>
+
+    <div class="row mx-5 mt-4">
+                    <div class="table-responsive">
+                <table class="table table-sm table-hover table-striped text-right table-active text-center">
+                    <thead>
+                    <tr>
+                        <th scope="col">رديف</th>
+                        <th scope="col">نام</th>
+                        <th scope="col">شماره مجوز</th>
+                        <th scope="col">نام و نام خانوادگی مسئول</th>
+                        <th scope="col">شهرستان محدوده فعاليت</th>
+                        <th scope="col">استان صادركننده مجوز</th>
+                        <th scope="col">اطلاعات بيشتر</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                                            <tr>
+                            <th scope="row">
+                                1
+                            </th>
+                            <td>
+                                دفتر 233
+                            </td>
+                            <td>
+                                5-31-0005031-00233
+                            </td>
+                            <td>
+                                مريم
+                                چاوش پور
+                            </td>
+                            <td>
+                                يزد
+                            </td>
+                            <td>
+                                يزد
+                            </td>
+                            <td>
+                                <div class="row">
+                                    <a href="/resume/daftar/500" class="mx-auto more"
+                                       style="text-decoration: none">اطلاعات
+                                        بيشتر</a>
+                                </div>
+                            </td>
+                        </tr>
+                                            <tr>
+                            <th scope="row">
+                                2
+                            </th>
+                            <td>
+                                دفتر 1
+                            </td>
+                            <td>
+                                5-31-0054301-00001
+                            </td>
+                            <td>
+                                علي
+                                صادقيان
+                            </td>
+                            <td>
+                                يزد
+                            </td>
+                            <td>
+                                يزد
+                            </td>
+                            <td>
+                                <div class="row">
+                                    <a href="/resume/daftar/1" class="mx-auto more"
+                                       style="text-decoration: none">اطلاعات
+                                        بيشتر</a>
+                                </div>
+                            </td>
+                        </tr>
+                                            <tr>
+                            <th scope="row">
+                                3
+                            </th>
+                            <td>
+                                دفتر 4
+                            </td>
+                            <td>
+                                5-31-0054601-00004
+                            </td>
+                            <td>
+                                مجيد
+                                زرگرباشي
+                            </td>
+                            <td>
+                                يزد
+                            </td>
+                            <td>
+                                يزد
+                            </td>
+                            <td>
+                                <div class="row">
+                                    <a href="/resume/daftar/32" class="mx-auto more"
+                                       style="text-decoration: none">اطلاعات
+                                        بيشتر</a>
+                                </div>
+                            </td>
+                        </tr>
+                                            <tr>
+                            <th scope="row">
+                                4
+                            </th>
+                            <td>
+                                دفتر 5
+                            </td>
+                            <td>
+                                5-31-0054301-00005
+                            </td>
+                            <td>
+                                محمدمهدي
+                                اسدي
+                            </td>
+                            <td>
+                                يزد
+                            </td>
+                            <td>
+                                يزد
+                            </td>
+                            <td>
+                                <div class="row">
+                                    <a href="/resume/daftar/42" class="mx-auto more"
+                                       style="text-decoration: none">اطلاعات
+                                        بيشتر</a>
+                                </div>
+                            </td>
+                        </tr>
+                                            <tr>
+                            <th scope="row">
+                                5
+                            </th>
+                            <td>
+                                دفتر 6
+                            </td>
+                            <td>
+                                5-31-0054321-00006
+                            </td>
+                            <td>
+                                محمد
+                                امجد
+                            </td>
+                            <td>
+                                يزد
+                            </td>
+                            <td>
+                                يزد
+                            </td>
+                            <td>
+                                <div class="row">
+                                    <a href="/resume/daftar/52" class="mx-auto more"
+                                       style="text-decoration: none">اطلاعات
+                                        بيشتر</a>
+                                </div>
+                            </td>
+                        </tr>
+                                            <tr>
+                            <th scope="row">
+                                6
+                            </th>
+                            <td>
+                                دفتر 8
+                            </td>
+                            <td>
+                                5-31-0054301-00008
+                            </td>
+                            <td>
+                                سيدمحمد
+                                وزيري بزرگ
+                            </td>
+                            <td>
+                                يزد
+                            </td>
+                            <td>
+                                يزد
+                            </td>
+                            <td>
+                                <div class="row">
+                                    <a href="/resume/daftar/63" class="mx-auto more"
+                                       style="text-decoration: none">اطلاعات
+                                        بيشتر</a>
+                                </div>
+                            </td>
+                        </tr>
+                                            <tr>
+                            <th scope="row">
+                                7
+                            </th>
+                            <td>
+                                دفتر 12
+                            </td>
+                            <td>
+                                5-31-0054301-00012
+                            </td>
+                            <td>
+                                محمدرضا
+                                شاه حسيني
+                            </td>
+                            <td>
+                                يزد
+                            </td>
+                            <td>
+                                يزد
+                            </td>
+                            <td>
+                                <div class="row">
+                                    <a href="/resume/daftar/3" class="mx-auto more"
+                                       style="text-decoration: none">اطلاعات
+                                        بيشتر</a>
+                                </div>
+                            </td>
+                        </tr>
+                                            <tr>
+                            <th scope="row">
+                                8
+                            </th>
+                            <td>
+                                دفتر 15
+                            </td>
+                            <td>
+                                5-31-0000301-00015
+                            </td>
+                            <td>
+                                علي اكبر
+                                دهقان پورحسين آبادي
+                            </td>
+                            <td>
+                                يزد
+                            </td>
+                            <td>
+                                يزد
+                            </td>
+                            <td>
+                                <div class="row">
+                                    <a href="/resume/daftar/5" class="mx-auto more"
+                                       style="text-decoration: none">اطلاعات
+                                        بيشتر</a>
+                                </div>
+                            </td>
+                        </tr>
+                                            <tr>
+                            <th scope="row">
+                                9
+                            </th>
+                            <td>
+                                دفتر 16
+                            </td>
+                            <td>
+                                5-31-0005430-00016
+                            </td>
+                            <td>
+                                فهيمه
+                                خوش دل
+                            </td>
+                            <td>
+                                يزد
+                            </td>
+                            <td>
+                                يزد
+                            </td>
+                            <td>
+                                <div class="row">
+                                    <a href="/resume/daftar/6" class="mx-auto more"
+                                       style="text-decoration: none">اطلاعات
+                                        بيشتر</a>
+                                </div>
+                            </td>
+                        </tr>
+                                            <tr>
+                            <th scope="row">
+                                10
+                            </th>
+                            <td>
+                                دفتر 17
+                            </td>
+                            <td>
+                                5-31-0054300-00017
+                            </td>
+                            <td>
+                                حسين
+                                مدعي
+                            </td>
+                            <td>
+                                يزد
+                            </td>
+                            <td>
+                                يزد
+                            </td>
+                            <td>
+                                <div class="row">
+                                    <a href="/resume/daftar/7" class="mx-auto more"
+                                       style="text-decoration: none">اطلاعات
+                                        بيشتر</a>
+                                </div>
+                            </td>
+                        </tr>
+                                            <tr>
+                            <th scope="row">
+                                11
+                            </th>
+                            <td>
+                                دفتر 18
+                            </td>
+                            <td>
+                                5-31-0054301-00018
+                            </td>
+                            <td>
+                                سيدمسعود
+                                وزيريان
+                            </td>
+                            <td>
+                                يزد
+                            </td>
+                            <td>
+                                يزد
+                            </td>
+                            <td>
+                                <div class="row">
+                                    <a href="/resume/daftar/8" class="mx-auto more"
+                                       style="text-decoration: none">اطلاعات
+                                        بيشتر</a>
+                                </div>
+                            </td>
+                        </tr>
+                                            <tr>
+                            <th scope="row">
+                                12
+                            </th>
+                            <td>
+                                دفتر 19
+                            </td>
+                            <td>
+                                5-31-0605431-00019
+                            </td>
+                            <td>
+                                محمد
+                                زينل پوريزدي
+                            </td>
+                            <td>
+                                يزد
+                            </td>
+                            <td>
+                                يزد
+                            </td>
+                            <td>
+                                <div class="row">
+                                    <a href="/resume/daftar/9" class="mx-auto more"
+                                       style="text-decoration: none">اطلاعات
+                                        بيشتر</a>
+                                </div>
+                            </td>
+                        </tr>
+                                            <tr>
+                            <th scope="row">
+                                13
+                            </th>
+                            <td>
+                                دفتر 20
+                            </td>
+                            <td>
+                                5-31-0654301-00020
+                            </td>
+                            <td>
+                                مهدي
+                                يزديان
+                            </td>
+                            <td>
+                                يزد
+                            </td>
+                            <td>
+                                يزد
+                            </td>
+                            <td>
+                                <div class="row">
+                                    <a href="/resume/daftar/11" class="mx-auto more"
+                                       style="text-decoration: none">اطلاعات
+                                        بيشتر</a>
+                                </div>
+                            </td>
+                        </tr>
+                                            <tr>
+                            <th scope="row">
+                                14
+                            </th>
+                            <td>
+                                دفتر 21
+                            </td>
+                            <td>
+                                5-31-0005431-00021
+                            </td>
+                            <td>
+                                عباسعلي
+                                فريماني
+                            </td>
+                            <td>
+                                يزد
+                            </td>
+                            <td>
+                                يزد
+                            </td>
+                            <td>
+                                <div class="row">
+                                    <a href="/resume/daftar/12" class="mx-auto more"
+                                       style="text-decoration: none">اطلاعات
+                                        بيشتر</a>
+                                </div>
+                            </td>
+                        </tr>
+                                            <tr>
+                            <th scope="row">
+                                15
+                            </th>
+                            <td>
+                                دفتر 24
+                            </td>
+                            <td>
+                                5-31-0005430-00024
+                            </td>
+                            <td>
+                                ناصر
+                                شفيعي باقي آبادي
+                            </td>
+                            <td>
+                                يزد
+                            </td>
+                            <td>
+                                يزد
+                            </td>
+                            <td>
+                                <div class="row">
+                                    <a href="/resume/daftar/15" class="mx-auto more"
+                                       style="text-decoration: none">اطلاعات
+                                        بيشتر</a>
+                                </div>
+                            </td>
+                        </tr>
+                                            <tr>
+                            <th scope="row">
+                                16
+                            </th>
+                            <td>
+                                دفتر 25
+                            </td>
+                            <td>
+                                5-31-0054301-00025
+                            </td>
+                            <td>
+                                محمدحسين
+                                گل بخش منشادي
+                            </td>
+                            <td>
+                                يزد
+                            </td>
+                            <td>
+                                يزد
+                            </td>
+                            <td>
+                                <div class="row">
+                                    <a href="/resume/daftar/16" class="mx-auto more"
+                                       style="text-decoration: none">اطلاعات
+                                        بيشتر</a>
+                                </div>
+                            </td>
+                        </tr>
+                                            <tr>
+                            <th scope="row">
+                                17
+                            </th>
+                            <td>
+                                دفتر 26
+                            </td>
+                            <td>
+                                5-31-0654301-00026
+                            </td>
+                            <td>
+                                محبوبه
+                                نواب زاده شهربابكي
+                            </td>
+                            <td>
+                                يزد
+                            </td>
+                            <td>
+                                يزد
+                            </td>
+                            <td>
+                                <div class="row">
+                                    <a href="/resume/daftar/17" class="mx-auto more"
+                                       style="text-decoration: none">اطلاعات
+                                        بيشتر</a>
+                                </div>
+                            </td>
+                        </tr>
+                                            <tr>
+                            <th scope="row">
+                                18
+                            </th>
+                            <td>
+                                دفتر 27
+                            </td>
+                            <td>
+                                5-31-0054301-00027
+                            </td>
+                            <td>
+                                حسن
+                                معين الديني
+                            </td>
+                            <td>
+                                يزد
+                            </td>
+                            <td>
+                                يزد
+                            </td>
+                            <td>
+                                <div class="row">
+                                    <a href="/resume/daftar/18" class="mx-auto more"
+                                       style="text-decoration: none">اطلاعات
+                                        بيشتر</a>
+                                </div>
+                            </td>
+                        </tr>
+                                            <tr>
+                            <th scope="row">
+                                19
+                            </th>
+                            <td>
+                                دفتر 28
+                            </td>
+                            <td>
+                                5-31-0004001-00028
+                            </td>
+                            <td>
+                                ابوالفضل
+                                آريازاد
+                            </td>
+                            <td>
+                                يزد
+                            </td>
+                            <td>
+                                يزد
+                            </td>
+                            <td>
+                                <div class="row">
+                                    <a href="/resume/daftar/19" class="mx-auto more"
+                                       style="text-decoration: none">اطلاعات
+                                        بيشتر</a>
+                                </div>
+                            </td>
+                        </tr>
+                                            <tr>
+                            <th scope="row">
+                                20
+                            </th>
+                            <td>
+                                دفتر 31
+                            </td>
+                            <td>
+                                5-31-0054301-00031
+                            </td>
+                            <td>
+                                سيدعباس
+                                مشكاتي
+                            </td>
+                            <td>
+                                يزد
+                            </td>
+                            <td>
+                                يزد
+                            </td>
+                            <td>
+                                <div class="row">
+                                    <a href="/resume/daftar/23" class="mx-auto more"
+                                       style="text-decoration: none">اطلاعات
+                                        بيشتر</a>
+                                </div>
+                            </td>
+                        </tr>
+                                        </tbody>
+                </table>
+            </div>
+            </div>
+
+            <nav aria-label="Page navigation example">
+            <div class="pagination justify-content-center mt-3">
+                <nav>
+        <ul class="pagination">
+            
+                            <li class="page-item disabled" aria-disabled="true" aria-label="&laquo; Previous">
+                    <span class="page-link" aria-hidden="true">&lsaquo;</span>
+                </li>
+            
+            
+                            
+                
+                
+                                                                                        <li class="page-item active" aria-current="page"><span class="page-link">1</span></li>
+                                                                                                <li class="page-item"><a class="page-link" href="http://service.yazdnezam.ir:8033/resume/daftar?page=2">2</a></li>
+                                                                                                <li class="page-item"><a class="page-link" href="http://service.yazdnezam.ir:8033/resume/daftar?page=3">3</a></li>
+                                                                                                <li class="page-item"><a class="page-link" href="http://service.yazdnezam.ir:8033/resume/daftar?page=4">4</a></li>
+                                                                                                <li class="page-item"><a class="page-link" href="http://service.yazdnezam.ir:8033/resume/daftar?page=5">5</a></li>
+                                                                                                <li class="page-item"><a class="page-link" href="http://service.yazdnezam.ir:8033/resume/daftar?page=6">6</a></li>
+                                                                                                <li class="page-item"><a class="page-link" href="http://service.yazdnezam.ir:8033/resume/daftar?page=7">7</a></li>
+                                                                                                <li class="page-item"><a class="page-link" href="http://service.yazdnezam.ir:8033/resume/daftar?page=8">8</a></li>
+                                                                        
+            
+                            <li class="page-item">
+                    <a class="page-link" href="http://service.yazdnezam.ir:8033/resume/daftar?page=2" rel="next" aria-label="Next &raquo;">&rsaquo;</a>
+                </li>
+                    </ul>
+    </nav>
+
+            </div>
+        </nav>
+    
+</div>
+
+
+</body>
+</html>

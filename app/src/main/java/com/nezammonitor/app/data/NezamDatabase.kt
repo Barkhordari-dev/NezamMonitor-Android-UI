@@ -8,12 +8,13 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [CaseEntity::class, SpecificationEntity::class, EngineerEntity::class, FeeEntity::class, ReportEntity::class, FollowUpEditEntity::class, FeeReceiptEntity::class, SnapshotEntity::class, HiddenOverrideEntity::class],
-    version = 9,
+    entities = [CaseEntity::class, SpecificationEntity::class, EngineerEntity::class, FeeEntity::class, ReportEntity::class, FollowUpEditEntity::class, FeeReceiptEntity::class, SnapshotEntity::class, HiddenOverrideEntity::class, DirectoryOfficeEntity::class, DirectoryEngineerEntity::class, DirectoryEducationEntity::class, DirectoryLicenceHistoryEntity::class],
+    version = 10,
     exportSchema = false
 )
 abstract class NezamDatabase : RoomDatabase() {
     abstract fun nezamDao(): NezamDao
+    abstract fun directoryDao(): DirectoryDao
 
     companion object {
         @Volatile
@@ -244,6 +245,28 @@ abstract class NezamDatabase : RoomDatabase() {
             }
         }
 
+        // v10 adds the Yazd design-offices directory tables (v3.10.0):
+        // directory_offices, directory_engineers, directory_education and
+        // directory_licence_history. New tables only — plain CREATE TABLE
+        // + CREATE INDEX, exactly as Room generates them (no DEFAULTs on
+        // any column), so migration validation passes. The statements live
+        // in MIGRATION_9_10_SQL (internal) so the unit test can check
+        // them against the entity fields; `internal` (not private) so
+        // the unit test can also run the migration itself.
+        internal val MIGRATION_9_10_SQL = listOf(
+            "CREATE TABLE IF NOT EXISTS `directory_offices` (`siteId` INTEGER NOT NULL, `name` TEXT NOT NULL, `licence` TEXT NOT NULL, `manager` TEXT NOT NULL, `mobile` TEXT NOT NULL, `contact` TEXT NOT NULL, `province` TEXT NOT NULL, `city` TEXT NOT NULL, `address` TEXT NOT NULL, `phone` TEXT NOT NULL, `fax` TEXT NOT NULL, `hours` TEXT NOT NULL, `detailUrl` TEXT NOT NULL, `memberCount` INTEGER NOT NULL, `updatedAt` TEXT NOT NULL, PRIMARY KEY(`siteId`))",
+            "CREATE TABLE IF NOT EXISTS `directory_engineers` (`siteId` INTEGER NOT NULL, `name` TEXT NOT NULL, `family` TEXT NOT NULL, `discipline` TEXT NOT NULL, `phone` TEXT NOT NULL, `designGrade` TEXT NOT NULL, `supervisionGrade` TEXT NOT NULL, `executionGrade` TEXT NOT NULL, `licenceIssue` TEXT NOT NULL, `licenceValidity` TEXT NOT NULL, `photo` TEXT NOT NULL, `officeId` INTEGER NOT NULL, `officeName` TEXT NOT NULL, `updatedAt` TEXT NOT NULL, PRIMARY KEY(`siteId`))",
+            "CREATE TABLE IF NOT EXISTS `directory_education` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `engineerId` INTEGER NOT NULL, `degree` TEXT NOT NULL, `field` TEXT NOT NULL, `orientation` TEXT NOT NULL, `universityType` TEXT NOT NULL, `university` TEXT NOT NULL, `city` TEXT NOT NULL, `country` TEXT NOT NULL, `start` TEXT NOT NULL, `end` TEXT NOT NULL)",
+            "CREATE INDEX IF NOT EXISTS `index_directory_education_engineerId` ON `directory_education` (`engineerId`)",
+            "CREATE TABLE IF NOT EXISTS `directory_licence_history` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `engineerId` INTEGER NOT NULL, `kind` TEXT NOT NULL, `grade1` TEXT NOT NULL, `grade2` TEXT NOT NULL, `grade3` TEXT NOT NULL)",
+            "CREATE INDEX IF NOT EXISTS `index_directory_licence_history_engineerId` ON `directory_licence_history` (`engineerId`)"
+        )
+        internal val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                MIGRATION_9_10_SQL.forEach { db.execSQL(it) }
+            }
+        }
+
         fun getDatabase(context: Context): NezamDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -251,7 +274,7 @@ abstract class NezamDatabase : RoomDatabase() {
                     NezamDatabase::class.java,
                     "nezam_monitor.db"
                 )
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
                 .fallbackToDestructiveMigration()
                 .build()
                 INSTANCE = instance

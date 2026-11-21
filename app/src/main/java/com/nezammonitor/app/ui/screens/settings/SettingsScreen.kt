@@ -85,6 +85,11 @@ fun SettingsScreen(viewModel: MainViewModel, onNavigateToHiddenSettings: () -> U
     val fees by viewModel.fees.collectAsState()
     val reports by viewModel.reports.collectAsState()
 
+    // v3.11.4: the directory seed outcome, shown in the diagnostics
+    // card below — so an empty directory can be diagnosed instead of
+    // guessed at (in 3.11.3 the seed result was discarded silently).
+    val directorySeed by viewModel.directorySeedStatus.collectAsState()
+
     // Hidden menu unlock: 10 taps in a row on the About card (no visible
     // hint anywhere). The counter resets if more than 3s pass between taps.
     var aboutTapCount by remember { mutableStateOf(0) }
@@ -340,7 +345,38 @@ fun SettingsScreen(viewModel: MainViewModel, onNavigateToHiddenSettings: () -> U
 
         Spacer(modifier = Modifier.height(14.dp))
 
-        // 6. App Info — 10 taps in a row here open the hidden menu's
+        // 6. Directory snapshot status (v3.11.4) — the seed result is
+        // visible here: snapshot version, office/engineer counts, and
+        // whether the seed succeeded or why it failed. If this card says
+        // 0 offices / 0 engineers, the detail pages will be empty too —
+        // and the reason is written here, not guessed at.
+        NezamCard(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                SectionTitle("دفترچه دفاتر و مهندسین")
+                Spacer(modifier = Modifier.height(8.dp))
+                Text("نسخهٔ داده: ${directorySeed.version.ifBlank { "—" }}", fontSize = 13.sp)
+                Text(
+                    "دفترها: ${toPersianDigits(directorySeed.offices.toString())} — مهندس‌ها: ${toPersianDigits(directorySeed.engineers.toString())}",
+                    fontSize = 13.sp
+                )
+                Text(
+                    when (directorySeed.state) {
+                        "seeded" -> "✅ اطلاعات دفترچه بارگذاری شد"
+                        "already" -> "✅ اطلاعات دفترچه آماده است"
+                        "seeding" -> "⏳ در حال بارگذاری اطلاعات دفترچه…"
+                        "failed" -> "❌ بارگذاری دفترچه ناموفق بود: ${directorySeed.reason}"
+                        else -> "وضعیت دفترچه نامشخص است"
+                    },
+                    fontSize = 13.sp,
+                    color = if (directorySeed.state == "failed") MaterialTheme.colorScheme.error
+                    else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        // 7. App Info — 10 taps in a row here open the hidden menu's
         // password dialog (no visible hint that it exists).
         NezamCard(
             modifier = Modifier.fillMaxWidth(),

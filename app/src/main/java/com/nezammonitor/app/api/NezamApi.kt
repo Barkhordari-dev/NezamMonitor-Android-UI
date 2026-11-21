@@ -4,11 +4,11 @@ import com.google.gson.Gson
 import com.google.gson.JsonObject
 import com.google.gson.JsonArray
 import okhttp3.*
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.util.concurrent.TimeUnit
 
 data class ApiLoginResponse(val message: String? = null, val token: String? = null)
 data class ApiUserResponse(val user: ApiUserInfo? = null)
@@ -34,11 +34,11 @@ class NezamApi {
         const val BASE_URL = "http://service.yazdnezam.ir:8033"
     }
 
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(30L, TimeUnit.SECONDS)
-        .readTimeout(60L, TimeUnit.SECONDS)
-        .writeTimeout(60L, TimeUnit.SECONDS)
-        .build()
+    // v3.11.3: the shared resilient client (no keep-alive reuse — see
+    // ResilientHttpClient). Same timeouts as before (30/60/60).
+    private val client = ResilientHttpClient.newClient(
+        connectTimeoutSec = 30, readTimeoutSec = 60, writeTimeoutSec = 60
+    )
 
     private val gson = Gson()
     private var token: String? = null
@@ -202,8 +202,17 @@ class NezamApi {
 
     suspend fun downloadFile(imageName: String): Result<ByteArray> = withContext(Dispatchers.IO) {
         try {
+            // v3.11.1: the file name goes into the URL path segment by
+            // segment, so a space, a Persian letter or any other special
+            // character is percent-encoded instead of breaking the URL.
+            // Before this, OkHttp's url(String) threw on such a name and
+            // the failure was swallowed as a plain "download failed".
+            val url = "$BASE_URL/panel/Panel/public/img/gozaresh/".toHttpUrl()
+                .newBuilder()
+                .apply { imageName.split("/").filter { it.isNotEmpty() }.forEach { addPathSegment(it) } }
+                .build()
             val request = Request.Builder()
-                .url("$BASE_URL/panel/Panel/public/img/gozaresh/$imageName")
+                .url(url)
                 .get()
                 .build()
 

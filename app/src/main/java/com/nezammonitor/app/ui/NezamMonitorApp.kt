@@ -1,5 +1,7 @@
 package com.nezammonitor.app.ui
 
+import android.app.Activity
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -35,6 +37,8 @@ import com.nezammonitor.app.ui.navigation.Screen
 import com.nezammonitor.app.ui.navigation.drawerItems
 import com.nezammonitor.app.ui.screens.cases.CasesScreen
 import com.nezammonitor.app.ui.screens.cases.CaseDetailScreen
+import com.nezammonitor.app.ui.screens.directory.DirectoryEngineerProfileScreen
+import com.nezammonitor.app.ui.screens.directory.DirectoryOfficeDetailScreen
 import com.nezammonitor.app.ui.screens.engineers.EngineersScreen
 import com.nezammonitor.app.ui.screens.fees.FeesScreen
 import com.nezammonitor.app.ui.screens.followup.FollowUpScreen
@@ -71,6 +75,44 @@ fun NezamMonitorApp(viewModel: MainViewModel) {
     val context = LocalContext.current
     val shownName = UiCustomization.displayNameOverride(context).ifBlank { userName }
     val displayName = shownName.ifBlank { "کاربر گرامی" }
+
+    // v3.11.6: system Back on the Home screen asks before closing the
+    // app — one accidental press used to quit immediately with no
+    // warning. On any inner screen Back keeps its normal pop behavior
+    // (the handler is disabled there), and an open drawer closes first.
+    // While the dialog itself is open the handler is disabled, so Back
+    // dismisses the dialog and the user stays in the app.
+    var showExitConfirm by remember { mutableStateOf(false) }
+    val isHome = currentRoute == Screen.Home.route
+    BackHandler(enabled = (drawerState.isOpen || isHome) && !showExitConfirm) {
+        if (drawerState.isOpen) {
+            scope.launch { drawerState.close() }
+        } else if (isHome) {
+            showExitConfirm = true
+        }
+    }
+    if (showExitConfirm) {
+        AlertDialog(
+            onDismissRequest = { showExitConfirm = false },
+            title = { Text("خروج از برنامه", fontSize = 16.sp, fontWeight = FontWeight.Bold) },
+            text = {
+                Text(
+                    "آیا می‌خواهید از برنامه خارج شوید؟",
+                    fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showExitConfirm = false
+                    (context as? Activity)?.finish()
+                }) { Text("بله") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showExitConfirm = false }) { Text("خیر") }
+            }
+        )
+    }
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -289,6 +331,9 @@ fun NezamMonitorApp(viewModel: MainViewModel) {
                             viewModel = viewModel,
                             onCaseClick = { caseNumber ->
                                 navController.navigate(Screen.CaseDetail.createRoute(caseNumber))
+                            },
+                            onDirectoryOfficeClick = { officeName ->
+                                navController.navigate(Screen.DirectoryOfficeDetail.createRoute(officeName))
                             }
                         )
                     }
@@ -299,13 +344,25 @@ fun NezamMonitorApp(viewModel: MainViewModel) {
                         val encoded = backStackEntry.arguments?.getString("caseNumber") ?: ""
                         val caseNumber = try { URLDecoder.decode(encoded, "UTF-8") } catch (e: Exception) { encoded }
                         LaunchedEffect(caseNumber) { viewModel.loadCaseDetail(caseNumber) }
-                        CaseDetailScreen(viewModel = viewModel, onBack = { navController.popBackStack() })
+                        CaseDetailScreen(
+                            viewModel = viewModel,
+                            onBack = { navController.popBackStack() },
+                            onDirectoryOfficeClick = { officeName ->
+                                navController.navigate(Screen.DirectoryOfficeDetail.createRoute(officeName))
+                            },
+                            onDirectoryEngineerClick = { engineerName ->
+                                navController.navigate(Screen.DirectoryEngineerProfile.createRoute(engineerName))
+                            }
+                        )
                     }
                     composable(Screen.Engineers.route) {
                         EngineersScreen(
                             viewModel = viewModel,
                             onCaseClick = { caseNumber ->
                                 navController.navigate(Screen.EngineerDetail.createRoute(caseNumber))
+                            },
+                            onDirectoryEngineerClick = { engineerName ->
+                                navController.navigate(Screen.DirectoryEngineerProfile.createRoute(engineerName))
                             }
                         )
                     }
@@ -358,7 +415,10 @@ fun NezamMonitorApp(viewModel: MainViewModel) {
                         LaunchedEffect(caseNumber) { viewModel.loadCaseDetail(caseNumber) }
                         com.nezammonitor.app.ui.screens.reports.ReportDetailScreen(
                             viewModel = viewModel,
-                            onBack = { navController.popBackStack() }
+                            onBack = { navController.popBackStack() },
+                            onDirectoryEngineerClick = { engineerName ->
+                                navController.navigate(Screen.DirectoryEngineerProfile.createRoute(engineerName))
+                            }
                         )
                     }
                     composable(Screen.FollowUp.route) {
@@ -422,7 +482,52 @@ fun NezamMonitorApp(viewModel: MainViewModel) {
                         val encoded = backStackEntry.arguments?.getString("caseNumber") ?: ""
                         val caseNumber = try { URLDecoder.decode(encoded, "UTF-8") } catch (e: Exception) { encoded }
                         LaunchedEffect(caseNumber) { viewModel.loadCaseDetail(caseNumber, includeArchived = true) }
-                        CaseDetailScreen(viewModel = viewModel, onBack = { navController.popBackStack() })
+                        CaseDetailScreen(
+                            viewModel = viewModel,
+                            onBack = { navController.popBackStack() },
+                            onDirectoryOfficeClick = { officeName ->
+                                navController.navigate(Screen.DirectoryOfficeDetail.createRoute(officeName))
+                            },
+                            onDirectoryEngineerClick = { engineerName ->
+                                navController.navigate(Screen.DirectoryEngineerProfile.createRoute(engineerName))
+                            }
+                        )
+                    }
+                    // Yazd design-offices directory (v3.10.0): detail pages
+                    // only — no menu entry, no list screen. Opened by
+                    // tapping an office number / engineer name in the
+                    // existing screens.
+                    composable(
+                        route = Screen.DirectoryOfficeDetail.route,
+                        arguments = listOf(navArgument("officeName") { type = NavType.StringType })
+                    ) { backStackEntry ->
+                        val encoded = backStackEntry.arguments?.getString("officeName") ?: ""
+                        val officeName = try { URLDecoder.decode(encoded, "UTF-8") } catch (e: Exception) { encoded }
+                        DirectoryOfficeDetailScreen(
+                            viewModel = viewModel,
+                            officeName = officeName,
+                            onBack = { navController.popBackStack() },
+                            onEngineerClick = { engineerName ->
+                                navController.navigate(Screen.DirectoryEngineerProfile.createRoute(engineerName))
+                            }
+                        )
+                    }
+                    composable(
+                        route = Screen.DirectoryEngineerProfile.route,
+                        arguments = listOf(
+                            navArgument("engineerName") { type = NavType.StringType }
+                        )
+                    ) { backStackEntry ->
+                        val encodedName = backStackEntry.arguments?.getString("engineerName") ?: ""
+                        val engineerName = try { URLDecoder.decode(encodedName, "UTF-8") } catch (e: Exception) { encodedName }
+                        DirectoryEngineerProfileScreen(
+                            viewModel = viewModel,
+                            engineerName = engineerName,
+                            onBack = { navController.popBackStack() },
+                            onOfficeClick = { name ->
+                                navController.navigate(Screen.DirectoryOfficeDetail.createRoute(name))
+                            }
+                        )
                     }
                     composable(Screen.Settings.route) {
                         SettingsScreen(

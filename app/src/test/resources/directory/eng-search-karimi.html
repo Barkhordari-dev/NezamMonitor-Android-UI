@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <!-- Required meta tags -->
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+
+    <!-- Bootstrap CSS -->
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css"
+          integrity="sha384-ggOyR0iXCbMQv3Xipma34MD+dH/1fQ784/j6cY/iJTQUOhcWr7x9JvoRxT2MZw1T" crossorigin="anonymous">
+
+    <script src="https://kit.fontawesome.com/aeaa3bd9ba.js" crossorigin="anonymous"></script>
+
+    <!-- Optional JavaScript -->
+<!-- jQuery first, then Popper.js, then Bootstrap JS -->
+<script src="https://code.jquery.com/jquery-3.3.1.slim.min.js"
+        integrity="sha384-q8i/X+965DzO0rT7abK41JStQIAqVgRVzpbzo5smXKp4YfRvH+8abtTE1Pi6jizo"
+        crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.14.7/umd/popper.min.js"
+        integrity="sha384-UO2eT0CpHqdSJQ6hJty5KVphtPhzWj9WO1clHTMGa3JDZwrnQq4sF86dIHNDz0W1"
+        crossorigin="anonymous"></script>
+<script src="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/js/bootstrap.min.js"
+        integrity="sha384-JjSmVgyd0p3pXB1rRibZUAYoIIy6OrQ6VrjIEaFf/nJGzIxFDsf4x0xIM+B07jRM"
+        crossorigin="anonymous"></script>
+<script>
+
+    $(document).ready(function () {
+        ConvertNumberToPersion();
+    });
+
+    function ConvertNumberToPersion() {
+        persian = {0: '۰', 1: '۱', 2: '۲', 3: '۳', 4: '۴', 5: '۵', 6: '۶', 7: '۷', 8: '۸', 9: '۹'};
+
+        function traverse(el) {
+            if (el.nodeType == 3) {
+                var list = el.data.match(/[0-9]/g);
+                if (list != null && list.length != 0) {
+                    for (var i = 0; i < list.length; i++)
+                        el.data = el.data.replace(list[i], persian[list[i]]);
+                }
+            }
+            for (var i = 0; i < el.childNodes.length; i++) {
+                traverse(el.childNodes[i]);
+            }
+        }
+
+        traverse(document.body);
+    }
+
+</script>
+
+    <style>
+        @font-face {
+            font-family: Vazir;
+            src: url('https://cdn.fontcdn.ir/Font/Persian/Vazir/Vazir.eot');
+            src: url('https://cdn.fontcdn.ir/Font/Persian/Vazir/Vazir.eot?#iefix') format('embedded-opentype'),
+            url('https://cdn.fontcdn.ir/Font/Persian/Vazir/Vazir.woff2') format('woff2'),
+            url('https://cdn.fontcdn.ir/Font/Persian/Vazir/Vazir.woff') format('woff'),
+            url('https://cdn.fontcdn.ir/Font/Persian/Vazir/Vazir.ttf') format('truetype');
+            font-weight: normal;
+        }
+
+        * {
+            font-family: Vazir;
+        }
+
+        .page-item:first-child .page-link {
+            margin-right: 0 !important;
+            border-radius: 0 .25rem .25rem 0 !important;
+        }
+
+        .page-item:last-child .page-link {
+            margin-right: 0 !important;
+            border-radius: .25rem 0 0 .25rem !important;
+        }
+
+        .more {
+            color: rgba(100, 0, 70, 01) !important;
+        }
+
+        .more:hover {
+            color: rgb(203, 0, 144) !important;
+        }
+
+        .rtl {
+            direction: rtl;
+        }
+
+        .ltr {
+            direction: ltr;
+        }
+
+    </style>
+    <title>لیست مهندسین عضو</title>
+</head>
+<body>
+
+<nav class="navbar navbar-light" style="direction: rtl; background-color:rgba(100, 0, 70, 01)!important;">
+    <h5 class="text-right text-white my-auto">
+        ليست مهندسين عضو سازمان نظام مهندسی ساختمان استان يزد
+    </h5>
+</nav>
+
+<div class="container-floyd rtl">
+    <div class="row mx-5" style="margin: 15px;">
+        <form class="" method="get" action="http://service.yazdnezam.ir:8033/resume/engineers/search">
+            <div class="row">
+                <div class="col-md-2 col-xs-12 p-0">
+                    <input type="text" class="form-control text-right rtl" placeholder="نام" name="name">
+                </div>
+                <div class="col-md-2 col-xs-12 p-0">
+                    <input type="text" class="form-control text-right rtl" placeholder="نام خانوادگی" name="family">
+                </div>
+                <div class="col-md-2 col-xs-12 p-0">
+                    <select class="custom-select rtl" id="inputGroupSelect01" name="reshte">
+                        <option selected value="">رشته</option>
+                        <option value="1">معماري</option>
+                        <option value="2">شهرسازي</option>
+                        <option value="3">عمران</option>
+                        <option value="4">مكانيك</option>
+                        <option value="5">برق</option>
+                        <option value="6">نقشه برداري</option>
+                        <option value="7">ترافيك</option>
+                    </select>
+                </div>
+                <div class="col-md-2 col-xs-12 p-0">
+                    <select class="custom-select rtl" id="inputGroupSelect01" name="tarrahi">
+                        <option selected value="">پایه طراحی</option>
+                        <option value="0">ارشد</option>
+                        <option value="1">1</option>
+                        <option value="2">2</option>
+                        <option value="3">3</option>
+                    </select>
+                </div>
+                <div class="col-md-2 col-xs-12 p-0">
+                    <select class="custom-select rtl" id="inputGroupSelect01" name="nezarat">
+                        <option selected value="">پایه نظارت</option>
+                        <option value="0">ارشد</option>
+                        <option value="1">1</option>
+                        <option value="2">2</option>
+                        <option value="3">3</option>
+                    </select>
+                </div>
+                <div class="col-md-2 col-xs-12 p-0">
+                    <div class="input-group-prepend">
+                        <select class="custom-select rtl" id="inputGroupSelect01" name="ejra">
+                            <option selected value="">پایه اجرا</option>
+                            <option value="0">ارشد</option>
+                            <option value="1">1</option>
+                            <option value="2">2</option>
+                            <option value="3">3</option>
+                        </select>
+                        <button class="btn btn-outline-secondary" type="submit" id="button-addon1">
+                            <i class="fas fa-search"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </form>
+    </div>
+
+    <div class="row mx-5 mt-4">
+                    <div class="table-responsive">
+                <table class="table table-sm table-hover table-striped text-right table-active text-center">
+                    <thead>
+                    <tr>
+                        <th scope="col">رديف</th>
+                        <th scope="col">نام</th>
+                        <th scope="col">نام خانوادگی</th>
+                        <th scope="col">رشته</th>
+                        <th scope="col">پايه طراحی</th>
+                        <th scope="col">پايه نظارت</th>
+                        <th scope="col">پايه اجرا</th>
+                        <th scope="col">عضویت در دفتر</th>
+                        <th scope="col">اطلاعات بيشتر</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                                            <tr>
+                            <th scope="row">
+                                1
+                            </th>
+                            <td>
+                                اميرحسين
+                            </td>
+                            <td>
+                                كريمي
+                            </td>
+                            <td>
+                                برق
+                            </td>
+                                                            <td>
+                                    3
+                                                                    </td>
+                                                                                        <td>
+                                    3
+                                                                    </td>
+                                                                                        <td>
+                                    3
+                                                                    </td>
+                                                                                        <td>
+                                    <a href="/resume/daftar/438" class="mx-auto more"
+                                       style="text-decoration: none">دفتر 195</a>
+                                </td>
+                                                        <td>
+                                <div class="row">
+                                    <a href="/resume/engineers/3320" class="mx-auto more"
+                                       style="text-decoration: none">اطلاعات
+                                        بيشتر</a>
+                                </div>
+                            </td>
+                        </tr>
+                                        </tbody>
+                </table>
+            </div>
+            </div>
+
+            <nav aria-label="Page navigation example">
+            <div class="pagination justify-content-center mt-3">
+                
+            </div>
+        </nav>
+    
+
+</div>
+
+
+</body>
+</html>

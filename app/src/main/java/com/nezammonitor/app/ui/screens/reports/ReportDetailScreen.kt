@@ -22,11 +22,17 @@ import com.nezammonitor.app.data.formatSinaLevels
 import com.nezammonitor.app.api.toPersianChars
 import com.nezammonitor.app.ui.components.SectionTitle
 import com.nezammonitor.app.ui.components.reportStageLabel
+import com.nezammonitor.app.ui.screens.reportgen.ServerReportFileButtons
 import com.nezammonitor.app.viewmodel.MainViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ReportDetailScreen(viewModel: MainViewModel, onBack: () -> Unit) {
+fun ReportDetailScreen(
+    viewModel: MainViewModel,
+    onBack: () -> Unit,
+    // v3.10.0: tapping an engineer name opens their directory profile.
+    onDirectoryEngineerClick: (engineerName: String) -> Unit = { _ -> }
+) {
     val case by viewModel.caseDetail.collectAsState()
     val reports by viewModel.caseReports.collectAsState()
     val context = LocalContext.current
@@ -87,7 +93,18 @@ fun ReportDetailScreen(viewModel: MainViewModel, onBack: () -> Unit) {
                             }
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                                 Column(modifier = Modifier.weight(1f)) {
-                                    Text("مهندس: ${toPersianChars(report.engineer)}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    // v3.10.0: the engineer name is tappable —
+                                    // it opens the directory profile page.
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text("مهندس: ", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text(
+                                            toPersianChars(report.engineer),
+                                            fontSize = 12.sp,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            fontWeight = FontWeight.Medium,
+                                            modifier = Modifier.clickable { onDirectoryEngineerClick(report.engineer) }
+                                        )
+                                    }
                                     if (sinaRep != null) Text(formatSinaLevels(sinaRep), fontSize = 11.sp, color = MaterialTheme.colorScheme.secondary)
                                 }
                                 if (sinaRep?.phone?.isNotBlank() == true) {
@@ -110,6 +127,10 @@ fun ReportDetailScreen(viewModel: MainViewModel, onBack: () -> Unit) {
                             if (report.indicator.isNotBlank()) {
                                 Text("شماره اندیکاتور: ${report.indicator}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
+                            // v3.11.0: «باز کردن» / «دانلود و باز کردن» — مثل تب سابقه.
+                            // v3.11.3: the owner is passed so an on-demand
+                            // download lands in the case's nezam_output folder.
+                            ServerReportFileButtons(report, case?.owner ?: "")
                         }
                     }
                 }

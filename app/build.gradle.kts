@@ -32,8 +32,8 @@ android {
         applicationId = "com.nezammonitor.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 74
-        versionName = "3.9.0"
+        versionCode = 82
+        versionName = "3.11.6"
         buildConfigField("String", "HIDDEN_MENU_FOLDER_ID", "\"$hiddenMenuFolderId\"")
     }
 
@@ -86,6 +86,26 @@ android {
     composeOptions {
         kotlinCompilerExtensionVersion = "1.5.3"
     }
+
+    // Unit tests run on a JVM whose default charset follows the machine
+    // locale — on this VM that is POSIX, so Persian file names came back
+    // from the filesystem as '?' and the file-lookup tests failed on
+    // names that are correct on the phone (Android is UTF-8).
+    // sun.jnu.encoding (used for file names) follows the locale and
+    // cannot be overridden with -D on JDK 17, so the locale itself
+    // must be UTF-8 for the test JVM.
+    testOptions {
+        // v3.11.5: Robolectric must see the merged resources/assets so
+        // the MainViewModel regression test can seed from the real
+        // directory-snapshot.json asset through the real AssetManager —
+        // the same path the app takes on the phone. Without this the
+        // asset lookup fails and the seed reports "directory-snapshot.json".
+        unitTests.isIncludeAndroidResources = true
+        unitTests.all {
+            it.systemProperty("file.encoding", "UTF-8")
+            it.environment("LC_ALL", "C.UTF-8")
+        }
+    }
 }
 
 dependencies {
@@ -113,12 +133,28 @@ dependencies {
     // HTTP client for API
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
+    // HTML parsing for the Yazd design-offices directory
+    // (service.yazdnezam.ir:8033 — no JSON API, server-rendered pages)
+    implementation("org.jsoup:jsoup:1.17.2")
+
+    // Remote photo loading for directory engineer profiles
+    implementation("io.coil-kt:coil-compose:2.5.0")
+
     // Apache POI for Word document manipulation
     implementation("org.apache.poi:poi:5.2.5")
     implementation("org.apache.poi:poi-ooxml:5.2.5")
     implementation("org.apache.poi:poi-ooxml-lite:5.2.5")
 
     testImplementation("junit:junit:4.13.2")
+    // v3.11.4: real-Room proof test needs an Android Context in JVM unit
+    // tests (in-memory Room + the real snapshot asset).
+    testImplementation("org.robolectric:robolectric:4.11.1")
+    // v3.11.6: Compose UI tests under Robolectric (detail-screen crash
+    // repro + uniform display). Same BOM version as the androidTest
+    // ui-test dependency.
+    testImplementation(platform("androidx.compose:compose-bom:2023.10.01"))
+    testImplementation("androidx.compose.ui:ui-test-junit4")
+    testImplementation("androidx.compose.ui:ui-test-manifest")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
     androidTestImplementation(platform("androidx.compose:compose-bom:2023.10.01"))
