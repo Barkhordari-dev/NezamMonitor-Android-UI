@@ -460,7 +460,7 @@ class ReportWizardLogicTest {
 
     /** A description cell like the real template: intro, two RTL
      *  numbered paragraphs, closing — built in memory, so this test
-     *  does not need the wizard/*.docx fixtures (not in git). */
+     *  does not need the wizard docx fixtures (not in git). */
     private fun rtlParagraph(para: XWPFParagraph, text: String) {
         para.alignment = ParagraphAlignment.RIGHT
         val pPr = para.ctp.pPr ?: para.ctp.addNewPPr()
