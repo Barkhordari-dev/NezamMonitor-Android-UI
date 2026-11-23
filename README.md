@@ -4,6 +4,8 @@
 
 **نسخهٔ کنونی: 3.11.8** (کد نسخهٔ ۸۳) — [دانلود آخرین نسخه](https://github.com/Barkhordari-dev/NezamMonitor-Android-UI/releases/tag/v3.11.8)
 
+🖥️ **نسخهٔ ویندوز:** [NezamMonitor](https://github.com/Barkhordari-dev/NezamMonitor) — برای رایانه؛ داده‌ها میان دو نسخه با فایل `.nzmdata` جابه‌جا می‌شوند.
+
 ---
 
 ## این برنامه برای چه کسی است و چه کار می‌کند؟
